@@ -16,3 +16,10 @@ export class ValidationError extends DomainError {
     this.name = 'ValidationError';
   }
 }
+
+export class SessionNotFoundError extends DomainError {
+  constructor(sessionId: string) {
+    super(`Session not found with ID: ${sessionId}`, 'SESSION_NOT_FOUND');
+    this.name = 'SessionNotFoundError';
+  }
+}
