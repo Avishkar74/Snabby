@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "start": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "placeholder": "echo 'TODO: implement placeholder script'"
   },
   "dependencies": {
     "react": "^19.2.8",
