@@ -77,21 +77,21 @@ Must not contain business logic.
 
 Responsible for:
 
-* Use cases.
+* Application Use Cases (organized by feature: `session/`, `capture/`, `ocr/`, `pdf/`).
 * Orchestration.
-* Coordinating domain services and repositories.
+* Coordinating domain entities, repository interfaces, and adapter abstractions.
 * Converting user actions into application operations.
 
 Example:
 
 ```text
-capture()
+CaptureScreenshot Use Case
     ↓
-Capture Service
+CaptureAdapter
     ↓
-Image Repository
+ImageRepository
     ↓
-OCR Service
+OCRRepository
 ```
 
 ---
@@ -1198,11 +1198,9 @@ React Components
        ↓
 React Hooks
        ↓
-Use Cases
+Application Use Cases
        ↓
-Domain Services
-       ↓
-Repository / Adapter Interfaces
+Domain / Repository / Service Interfaces
        ↑
        │
 Infrastructure
@@ -1272,24 +1270,25 @@ The resulting architecture is:
                                   │
                                   ▼
                          ┌──────────────────┐
-                         │    Use Cases     │
+                         │Application Use   │
+                         │      Cases       │
                          └────────┬─────────┘
                                   │
                     ┌─────────────┼─────────────┐
                     ▼             ▼             ▼
-              Domain Services  Repositories  Adapters
+              Domain Layer  Repositories  Adapters
                     │             │             │
                     │             │             │
                     ▼             ▼             ▼
-                 Business     IndexedDB     Chrome APIs
-                  Logic                       │
-                                              │
-                                   ┌──────────┴─────────┐
-                                   ▼                    ▼
-                              Offscreen             Downloads
-                                   │
-                                   ▼
-                               Tesseract
+                 Invariants    IndexedDB     Chrome APIs
+                                                │
+                                                │
+                                     ┌──────────┴─────────┐
+                                     ▼                    ▼
+                                Offscreen             Downloads
+                                     │
+                                     ▼
+                                 Tesseract
 ```
 
 ---

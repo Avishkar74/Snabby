@@ -699,46 +699,15 @@ OCRStatus
 ProcessingStatus
 ```
 
-We should **not start writing these interfaces yet**.
-
-First we need to verify the actual existing implementation wherever the model depends on behavior we haven't explicitly documented.
+We have implemented these domain models cleanly.
 
 ---
 
-# 26. Things We Need to Verify From Existing Code
+# 26. Domain Model Finalization
 
-Before freezing these schemas, I would specifically want to see the current implementation for:
-
-1. **Session object**
-
-   * What fields currently exist?
-   * Is session state stored separately from captures?
-
-2. **Capture object**
-
-   * What metadata is actually generated?
-   * Does it store page title, URL, tab ID, timestamp, etc.?
-
-3. **OCR result**
-
-   * Exact Tesseract output currently retained.
-   * Word bounding-box format.
-   * Confidence representation.
-
-4. **Image processing**
-
-   * Which dimensions/formats are produced before OCR?
-   * Whether the processed image or original screenshot is persisted.
-
-5. **PDF generation**
-
-   * Exactly what OCR fields it currently consumes.
-
-6. **Current storage models**
-
-   * Existing `chrome.storage.local` structure.
-   * This is particularly important because we're migrating it to IndexedDB.
-
-Those details can change the final models.
-
-**So for the next document, if you provide the current project's relevant model/storage files, I can make `13_FUNCTION_CONTRACTS.md` based on the actual implementation rather than guessing.**
+The final TypeScript representations are implemented under `src/domain/` with:
+- Branded UUID string identifiers (`SessionId`, `CaptureId`, `ImageId`) generated via `crypto.randomUUID()`.
+- Time representation as standard Epoch milliseconds (`Timestamp = number`).
+- Capture `ProcessingStatus` separate from OCR `OCRStatus`.
+- Invariant validation enforced inside domain constructors (e.g. Session requires name, Capture requires positive order).
+- Domain mapping boundary cleanly separating domain models from raw database records.

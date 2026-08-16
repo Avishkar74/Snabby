@@ -88,9 +88,7 @@ Session
           └── OCR Result
 ```
 
-The exact object-store structure is intentionally not finalized in this document.
-
-That belongs to the schema/LLD phase.
+These concepts map directly to the finalized database stores: `sessions`, `captures`, `images`, and `ocrResults`.
 
 ---
 
@@ -2296,8 +2294,6 @@ At this point, the architecture has established four major persistent concepts:
 └──────────────┘ └──────────────┘
 ```
 
-These are **conceptual entities, not final database schemas**.
+These entities map directly to the finalized database schemas implemented in `DatabaseManager.ts` and their corresponding application-facing interfaces: `SessionRepository`, `CaptureRepository`, `ImageRepository`, and `OCRRepository`.
 
-The next documents will allow us to determine exactly how they should be represented.
-
-The next subsystem should be **`08_PDF_GENERATION_FLOW.md`**, because PDF generation is the other major consumer of the stored image and OCR data. It needs to define how a session is transformed into an ordered PDF, including screenshot pages, OCR text layers, coordinate conversion, scaling, page dimensions, and PDF finalization.
+The next subsystem is **`08_PDF_GENERATION_FLOW.md`**, because PDF generation is the other major consumer of the stored image and OCR data. It defines how a session is transformed into an ordered PDF, including screenshot pages, OCR text layers, coordinate conversion, scaling, page dimensions, and PDF finalization.

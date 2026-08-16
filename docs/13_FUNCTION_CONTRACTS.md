@@ -31,11 +31,9 @@ Functions should be organized by responsibility:
 ```text
 UI
  ↓
-Use Cases
+Application Use Cases
  ↓
-Domain Services
- ↓
-Repositories / Adapters
+Domain / Repository / Service Interfaces
  ↓
 Browser / IndexedDB / Libraries
 ```

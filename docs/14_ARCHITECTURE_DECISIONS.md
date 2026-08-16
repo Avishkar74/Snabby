@@ -17,16 +17,14 @@ The new Snabby will follow:
 ```text
 React UI
    ↓
-Application / Use Cases
+Application Use Cases (feature-based)
    ↓
-Domain Services
+Domain / Application Interfaces
    ↓
-Infrastructure Adapters
-   ↓
-Chrome APIs / IndexedDB / Tesseract / PDF Library
+Infrastructure (IndexedDB, Chrome APIs, Tesseract, pdf-lib)
 ```
 
-Responsibilities will be separated instead of allowing the service worker or UI to contain most of the application logic.
+Responsibilities are strictly separated. The application layer orchestrates behavior through use cases grouped by feature (`session/`, `capture/`, `ocr/`, `pdf/`), while repository interfaces and adapters decouple the core from technology-specific infrastructure details.
 
 ---
 
@@ -521,23 +519,11 @@ The new implementation will explicitly follow SOLID principles.
 Example:
 
 ```text
-CaptureService
+CaptureScreenshot Use Case
       ↓
-CaptureRepository
+CaptureRepository Interface
       ↓
-IndexedDBRepository
-```
-
-rather than:
-
-```text
-CaptureService
-      ↓
-indexedDB.open(...)
-      ↓
-chrome.tabs.captureVisibleTab(...)
-      ↓
-Tesseract(...)
+IndexedDBCaptureRepository
 ```
 
 Each layer should have a clear responsibility.

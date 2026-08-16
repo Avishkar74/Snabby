@@ -1414,28 +1414,15 @@ The UI reflects application state backed by persistent storage.
 
 ---
 
-# 45. Open Questions
+# 45. Session Management Decisions Finalized
 
-The following decisions must be resolved before the final LLD:
+The following decisions are now resolved:
 
-1. What exactly constitutes the "current session"?
-2. Does a session automatically become inactive after a period of inactivity?
-3. Can the user explicitly start a new session?
-4. What happens to an empty session?
-5. What happens after PDF generation?
-6. Should completed sessions remain in IndexedDB?
-7. Should multiple sessions be visible to the user?
-8. How is the current session identified across extension contexts?
-9. Should session state be stored separately from capture ordering?
-10. Should ordering be represented as a numeric `order` field or a session-level ordered collection?
-11. How should rapid/concurrent capture requests be serialized?
-12. What transaction boundaries are required when adding/removing/reordering captures?
-13. Should deletion be hard deletion or soft deletion?
-14. Should session metadata include a user-visible name?
-15. Should a session have an explicit status or should status be derived?
-16. How should recovery work if the extension is interrupted during a session update?
-
-These are intentionally left open until we examine the existing implementation and then design the new data model.
+1. **Current Session Identification**: The UI/caller retrieves the relevant session using the use cases `GetSession` / `CreateSession`.
+2. **Persistence Lifecycle**: Sessions remain persisted in IndexedDB until explicitly deleted by the user.
+3. **Session Deletion Cascade**: Purging a session cascades to captures, images, and OCRResults inside the repository database transaction, preventing orphan records.
+4. **Exceptions**: Missing session lookups throw a dedicated `SessionNotFoundError`.
+5. **Ordering**: Represented as a numeric `order` field on Capture records and sorted natively by compound index `[sessionId, order]` in IndexedDB.
 
 ---
 

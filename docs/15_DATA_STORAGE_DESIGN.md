@@ -48,16 +48,16 @@ Conceptually:
 Database: snabby
 ```
 
-The exact database name is a constant and will be finalized with the rest of the constants.
+The database name is `snabby`.
 
-The database should have a version number:
+The database version number is:
 
 ```text
 snabby
-  version: N
+  version: 1
 ```
 
-Database versioning allows schema migrations when the application evolves.
+Database versioning allows schema migrations when the database schema evolves.
 
 ---
 
@@ -118,10 +118,10 @@ id
 Example:
 
 ```text
-session_abc123
+719266ad-22a4-4fa0-82cf-f8444a7f0535
 ```
 
-The exact ID-generation strategy will be finalized in the LLD.
+The ID-generation strategy uses branded string UUIDs generated using `crypto.randomUUID()`.
 
 The ID must remain stable for the lifetime of the session.
 
@@ -199,7 +199,7 @@ without scanning every capture.
 
 We also need ordering by the capture's `order` value.
 
-The exact IndexedDB compound-index strategy will be finalized in the LLD.
+We use a compound index named `sessionId_order` defined on `['sessionId', 'order']` to retrieve captures for a session sorted by their order natively without post-sorting in memory.
 
 ---
 
@@ -1000,24 +1000,17 @@ Delete Capture
 
 ---
 
-# 40. What We Are Deliberately Not Defining Yet
+# 40. Storage Decisions Finalized
 
-The following require the LLD before implementation:
+The following persistence decisions are now finalized:
 
-* Exact database name.
-* Exact database version.
-* Exact key-generation algorithm.
-* Exact indexes.
-* Compound-index strategy.
-* Transaction implementation.
-* Whether IDs are UUIDs or another format.
-* Exact Blob metadata.
-* Exact migration functions.
-* Repository method signatures.
-* Concurrency handling.
-* Database initialization lifecycle.
-
-These should not be prematurely locked down.
+* Database name: `snabby`
+* Database version: `1`
+* Key generation: Branded UUID string identifiers (`crypto.randomUUID()`)
+* Object stores: `sessions`, `captures`, `images`, and `ocrResults`
+* Indexes: `sessionId` index and compound sorting index `sessionId_order = ['sessionId', 'order']` on `captures`
+* OCR primary key: `captureId` (1:1 with captures)
+* Transaction boundaries: Atomic cascade deletion implemented directly in repository implementations
 
 ---
 
