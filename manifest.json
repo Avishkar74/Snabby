@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Snabby",
+  "version": "1.0.0",
+  "description": "Snabby screenshot and OCR tool",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "offscreen",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Snabby"
+  },
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  }
+}
