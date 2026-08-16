@@ -668,18 +668,7 @@ The new architecture defines:
 
 ---
 
-## Next
+## Implementation Status
 
-The next document should be **`15_DATA_STORAGE_DESIGN.md`**.
+Data storage design, LLD, and project structure have now been finalized in documents 15–17.
 
-That is where we turn our IndexedDB decision into an actual design:
-
-```text
-IndexedDB
-├── sessions
-├── captures
-├── images
-└── ocrResults
-```
-
-and define the **keys, indexes, relationships, transactions, deletion/cascade behavior, Blob handling, and database versioning** before we move to the final LLD.

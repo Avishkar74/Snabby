@@ -151,9 +151,7 @@ contains the information necessary to determine what should be captured.
 
 At minimum, the system needs to know the target tab.
 
-The exact request schema will be defined later during the **function contract and schema design phase**.
-
-The request should not contain unnecessary implementation details.
+The request schema is defined by the input properties of the capture use case.
 
 ---
 

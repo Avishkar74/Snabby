@@ -494,7 +494,7 @@ ROLLBACK
 
 so we don't leave an orphaned image.
 
-The exact transaction implementation will be specified in the LLD.
+The transaction implementation is defined by the LLD and implemented within the IndexedDB repositories.
 
 ---
 
@@ -565,7 +565,7 @@ Delete Capture
 
 This should be performed safely so that failed deletion does not leave the database in an unexpected state.
 
-The exact transaction strategy will be defined in the LLD.
+The transaction strategy is defined by the LLD and implemented within the IndexedDB repositories.
 
 ---
 
@@ -639,9 +639,10 @@ IndexedDB
 
 The application can retrieve the relevant session and its captures.
 
-The exact definition of **which session is considered active after reopening** is still a requirement that should be finalized before implementation.
-
-We should not invent that behavior here.
+On application startup:
+1. Look for the persisted ACTIVE session.
+2. If found, restore it.
+3. If not found, show/create a new session.
 
 ---
 
