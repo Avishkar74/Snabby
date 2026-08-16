@@ -9,14 +9,7 @@ The goal is to establish **what data exists and how the entities relate to each 
 We will keep three concepts separate:
 
 ```text
-Domain Models
-      ↓
-Application / Message DTOs
-      ↓
-Persistence Models
-```
-
-The exact TypeScript interfaces and IndexedDB schema will be finalized later.
+The domain model design, TypeScript interfaces, and IndexedDB schemas are finalized and implemented.
 
 ---
 
@@ -158,9 +151,7 @@ ProcessingStatus
 └── FAILED
 ```
 
-However, image processing and OCR have different lifecycles, so the final model may use separate statuses.
-
-This will be finalized after reviewing the existing implementation.
+Image processing and OCR have separate, distinct lifecycles, so Snabby v1 uses separate statuses: `processingStatus` (Capture) and `OCRStatus` (OCR Result).
 
 ---
 
@@ -221,7 +212,7 @@ Capture
 
 This keeps metadata operations lightweight and gives the storage layer flexibility.
 
-Whether this becomes a separate IndexedDB object store will be finalized in the LLD.
+This is stored in a separate IndexedDB object store named `images`.
 
 ---
 
@@ -266,14 +257,7 @@ OCRStatus
 └── FAILED
 ```
 
-Potentially:
-
-```text
-FAILED
-   └── error information
-```
-
-The exact error representation will be defined in the error/function contracts.
+Snabby v1 keeps error details out of persistent database records, logging them or throwing custom DomainError exceptions instead.
 
 ---
 
@@ -370,7 +354,7 @@ Conceptually:
 Timestamp
 ```
 
-The exact TypeScript representation will be decided later, but the preferred persisted representation should be consistent and sortable.
+The TypeScript representation is finalized as a number type representing milliseconds since Unix epoch (using `Date.now()` for generation).
 
 Relevant timestamps include:
 
@@ -478,7 +462,7 @@ UI order
 PDF page order
 ```
 
-The exact ordering strategy will be finalized in the IndexedDB schema/LLD.
+The ordering strategy uses a compound index `sessionId_order` in the IndexedDB schema for sorted retrieval.
 
 ---
 
@@ -649,7 +633,7 @@ Delete Session
      └── ...
 ```
 
-The exact transaction/cascade implementation belongs to the storage LLD.
+The transaction/cascade implementation is executed atomically within IndexedDB repository implementations.
 
 ---
 

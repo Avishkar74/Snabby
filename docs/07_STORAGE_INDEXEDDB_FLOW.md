@@ -163,9 +163,9 @@ The intended architecture is:
              IndexedDB
 ```
 
-The names shown above are conceptual.
-
-Final interfaces and class names will be defined later.
+The final repositories and interfaces are implemented as:
+- Interfaces under `src/application/interfaces/repositories/` (`SessionRepository`, `CaptureRepository`, `ImageRepository`, `OCRRepository`).
+- Implementations under `src/infrastructure/indexeddb/repositories/` (`IndexedDBSessionRepository`, `IndexedDBCaptureRepository`, `IndexedDBImageRepository`, `IndexedDBOCRRepository`).
 
 ---
 
@@ -2095,9 +2095,7 @@ SerializationError
 DataIntegrityError
 ```
 
-These are not final TypeScript classes yet.
-
-The final error hierarchy will be designed later.
+The final error handling utilizes our base `DomainError` exception type alongside `ValidationError` and `SessionNotFoundError` to isolate application boundaries cleanly.
 
 ---
 
@@ -2145,39 +2143,26 @@ Database changes will be versioned and handled through IndexedDB upgrade/migrati
 
 ---
 
-# 73. Open Questions
+# 73. Storage Decisions Finalized
 
-These are intentionally left for the schema and LLD phases:
+The following persistence decisions are now finalized:
 
-1. Exact database name.
-2. Exact database version.
-3. Exact object-store names.
-4. Primary keys for each store.
-5. Whether image data gets its own object store.
-6. Whether OCR gets its own object store.
-7. Whether session ordering is stored on the session or capture records.
-8. Exact indexes.
-9. Exact repository interfaces.
-10. Exact transaction boundaries.
-11. Whether related records are written in one transaction.
-12. Whether deletion is hard delete or soft delete.
-13. Exact cascade-deletion strategy.
-14. Image Blob vs another binary representation.
-15. Whether normalized images are persisted.
-16. Exact serialization/deserialization rules.
-17. Migration strategy.
-18. Storage quota handling.
-19. Recovery of interrupted OCR operations.
-20. Cross-context synchronization strategy.
-21. Whether old sessions are retained indefinitely.
-22. Session cleanup policy.
-23. Bulk-read strategy for PDF generation.
-24. Whether database access should be wrapped by a single database manager.
-25. Whether repositories should expose entities or application-specific DTOs.
+1. **Database Name/Version**: Name is `snabby`, version is `1`.
+2. **Object Stores**: Four stores are configured: `sessions`, `captures`, `images`, and `ocrResults`.
+3. **Primary Keys**: `id` for `sessions`, `captures`, and `images`; `captureId` as primary key for `ocrResults` (mapping 1:1 to captures).
+4. **Capture Ordering**: Stored via a numeric `order` field on Capture records and sorted natively by compound index `sessionId_order = ['sessionId', 'order']`.
+5. **Repositories**: Concrete classes implemented under `src/infrastructure/indexeddb/repositories/` inheriting from application repository interfaces.
+6. **Transaction boundaries & Cascading Deletes**: Implemented atomically within IndexedDB repositories via multi-store readwrite transactions.
+7. **Database Manager**: Connective connection pooling and initialization handled via [DatabaseManager.ts](file:///d:/Resume%20projects/Snabby/src/infrastructure/indexeddb/database/DatabaseManager.ts).
 
-These should **not** be guessed now.
+## 73.2 Future / Unresolved Storage Questions
 
-They will be decided after the complete subsystem flows and data requirements are known.
+The following genuinely future decisions remain open:
+
+1. **Storage Quota Policy**: Custom UI/policies for handling disk quota limits.
+2. **OCR Recovery Policy**: Interrupted OCR state recovery after browser/worker crashes.
+3. **Concurrency Strategy**: Lock-handling or synchronization for rapid concurrent capture inserts.
+4. **Future Schema Migrations**: Migration logic when schema changes beyond version 1.
 
 ---
 
