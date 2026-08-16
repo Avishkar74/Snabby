@@ -253,9 +253,7 @@ Session
 └── other session-level metadata
 ```
 
-The exact fields will be defined later.
-
-We should avoid storing metadata that has no clear purpose.
+The exact fields are declared as `Session` inside [Session.ts](file:///d:/Resume%20projects/Snabby/src/domain/session/Session.ts).
 
 ---
 
@@ -1366,7 +1364,7 @@ ConcurrentModificationError
 
 These are conceptual error categories.
 
-The final error class hierarchy will be defined later.
+The final error classes are implemented under `src/domain/common/errors.ts` using a base `DomainError` and subclasses `ValidationError`, `SessionNotFoundError`, and `DatabaseError`.
 
 ---
 

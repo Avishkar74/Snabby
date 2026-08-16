@@ -416,7 +416,7 @@ Capture
 
 This is a conceptual model only.
 
-The exact TypeScript schema will be defined later.
+The exact TypeScript representation is declared as `Capture` inside [Capture.ts](file:///d:/Resume%20projects/Snabby/src/domain/capture/Capture.ts).
 
 ---
 
@@ -1202,29 +1202,30 @@ React displays capture state but does not implement the capture mechanism.
 
 ---
 
-# 38. Open Questions for Later Design
+# 38. Capture Decisions Finalized
 
-The following are intentionally not finalized yet:
+The following decisions are now finalized:
 
-1. Exact Chrome screenshot API.
-2. Exact permissions required.
-3. Exact active-tab lookup mechanism.
-4. Exact image representation between Chrome and the application.
-5. Exact capture metadata.
-6. Capture ID generation strategy.
-7. Session creation rules.
-8. Capture ordering representation.
-9. IndexedDB object-store structure.
-10. IndexedDB transaction boundaries.
-11. Exact capture state machine.
-12. Retry policy.
-13. Error class hierarchy.
-14. How capture progress is communicated to React.
-15. How concurrent capture requests are handled.
-16. How duplicate/rapid shortcut presses are handled.
-17. How unsupported/restricted pages are reported to the user.
+1. **Capture ID Generation**: Branded nominal string IDs generated via `crypto.randomUUID()`.
+2. **Session Creation Rules**: A new capture session is initialized explicitly or dynamically matching the use cases (`CreateSession` / `GetSession`).
+3. **Capture Ordering**: Represented via a numeric `order` field on Capture, sorted natively using the compound index `sessionId_order`.
+4. **IndexedDB Object Stores**: Conceptual structure mapped to stores: `sessions`, `captures`, `images`, and `ocrResults`.
+5. **Transaction Boundaries**: Cascade transactions handled atomically within repository implementations.
+6. **Error Taxonomy**: Handled via custom domain exceptions (`ValidationError`, `SessionNotFoundError`, `DatabaseError`).
 
-These will be resolved in the appropriate later design documents rather than being guessed here.
+## 38.2 Open Questions for Later Design
+
+The following capture-specific questions remain open:
+
+1. **Chrome Screenshot API**: Exact API call used (`chrome.tabs.captureVisibleTab` vs debugger protocols).
+2. **Permissions Required**: Extension permission declarations in `manifest.json`.
+3. **Active-Tab Lookup**: Target tab querying mechanism.
+4. **Image representation between Chrome and application**: Handling the data URL from Chrome and converting to `Blob` inside the capture use case.
+5. **Retry Policy**: Recovery behavior for failed API screenshot attempts.
+6. **Concurrent Requests**: Locking mechanism for rapid overlapping capture attempts.
+7. **Shortcut Presses**: Handling rapid repeated shortcut keystrokes.
+8. **Restricted Pages**: Reporting and displaying errors on pages where extensions are blocked (e.g. `chrome://` settings).
+9. **Capture Progress Communication**: How start, intermediate state, and finish capture events are piped to the React UI.
 
 ---
 

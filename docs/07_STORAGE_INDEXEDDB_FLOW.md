@@ -322,9 +322,9 @@ Database
 └── ocrResults
 ```
 
-The final names are not yet fixed.
+The final store names are: `sessions`, `captures`, `images`, and `ocrResults`.
 
-The actual schema will be defined in the later data-model/LLD phase.
+The database schema is implemented in `DatabaseManager.ts`.
 
 ---
 
@@ -345,7 +345,7 @@ Database
 
 Each store represents a persistence boundary for a particular type of data.
 
-The final decision about whether some entities should be combined or separated will be made after the complete data model is designed.
+These entities are separated into dedicated stores in our final schema.
 
 ---
 
@@ -419,7 +419,7 @@ Capture
 
 This separation allows metadata operations to remain lightweight.
 
-Whether images are stored in a dedicated object store or directly inside capture records will be finalized during the schema design.
+Snabby v1 stores screenshot image Blobs in a dedicated `images` object store.
 
 ---
 
@@ -454,7 +454,7 @@ OCRResult
       └── boundingBox
 ```
 
-The exact schema will be defined later.
+The schema is implemented inside `DatabaseManager.ts` and its mapper helper `ocr.mapper.ts`.
 
 ---
 
@@ -551,7 +551,7 @@ Persist Capture Metadata
 Session Updated
 ```
 
-The exact order and transaction strategy will be defined by the storage implementation.
+The capture order and transaction strategies are implemented in `IndexedDBCaptureRepository.ts` and `IndexedDBSessionRepository.ts`.
 
 The important requirement is that the application must not report the capture as safely persisted if the required persistent operation has failed.
 
@@ -586,7 +586,7 @@ or:
 No incomplete capture state is committed
 ```
 
-The exact IndexedDB transaction boundaries will be decided in the LLD.
+The IndexedDB transaction scopes are isolated to their specific repository implementations.
 
 ---
 
@@ -1080,7 +1080,7 @@ Open Connection
 Database Ready
 ```
 
-The exact connection reuse strategy will be defined later.
+The connection reuse and initialization logic is centralized inside `DatabaseManager.ts` to expose a single connection pool.
 
 The important requirement is that every repository should not independently implement database initialization.
 
@@ -1130,7 +1130,7 @@ OCRRepository
 
 These are conceptual operations only.
 
-The exact contracts will be defined later.
+The exact interface contracts are declared under `src/application/interfaces/repositories/`.
 
 ---
 
@@ -1274,7 +1274,7 @@ However:
 
 > We should only create indexes that support real query requirements.
 
-The final index strategy will be defined in the schema design.
+The final index strategy uses `sessionId` and compound `sessionId_order` indexes on the `captures` store.
 
 ---
 
@@ -1325,7 +1325,7 @@ OCR Store / Index
 OCR Result
 ```
 
-The exact primary key/index design will be chosen later.
+The OCR Result is keyed directly by `captureId` as its primary key.
 
 ---
 
@@ -1622,7 +1622,7 @@ Cleanup Dependencies
 Delete Session
 ```
 
-The exact transaction and cascading-deletion strategy will be defined later.
+The cascade deletions are performed atomically in repository transactions inside `IndexedDBSessionRepository.ts` and `IndexedDBCaptureRepository.ts`.
 
 ---
 
@@ -1664,7 +1664,7 @@ Session
 
 The storage layer should provide efficient ways to retrieve this data without causing unnecessary repeated database operations.
 
-The exact batching strategy will be determined during LLD.
+Batching or querying captures for a session uses the native sorting index `sessionId_order` to retrieve records sequentially in one transaction.
 
 ---
 
@@ -1712,9 +1712,7 @@ Use image
 Release object URL
 ```
 
-The exact lifecycle will be implemented later.
-
-Temporary browser resources should be cleaned up to prevent unnecessary memory usage.
+The cleanup lifecycle is managed when React components unmount or temporary object URLs are revoked.
 
 ---
 
@@ -1767,9 +1765,7 @@ Possible mechanisms include:
 * application-level event bus
 * context-specific synchronization
 
-The exact synchronization strategy will be defined during the React/extension communication design.
-
-The storage layer itself should remain responsible only for persistence.
+The synchronization strategy is implemented through React state updates and the extension's runtime messaging channels.
 
 ---
 

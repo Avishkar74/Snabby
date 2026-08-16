@@ -404,7 +404,7 @@ Therefore the OCR store needs an index/key that allows:
 getOCRResult(captureId)
 ```
 
-The exact primary-key vs separate-index choice will be finalized during LLD.
+The primary key is finalized as `captureId` inside `DatabaseManager.ts` to support direct one-to-one retrieval.
 
 ---
 

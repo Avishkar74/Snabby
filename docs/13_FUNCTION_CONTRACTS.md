@@ -830,7 +830,7 @@ IndexedDB Error
 STORAGE_ERROR
 ```
 
-The exact error hierarchy will be finalized later.
+The final error classes are implemented as `DomainError` subclasses: `ValidationError`, `SessionNotFoundError`, and `DatabaseError`.
 
 ---
 
