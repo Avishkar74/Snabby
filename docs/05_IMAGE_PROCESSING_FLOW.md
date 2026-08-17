@@ -99,25 +99,25 @@ It should not be responsible for:
 
 # 4. Position in the Overall Pipeline
 
-The image-processing subsystem sits here:
+The image-processing subsystem fits into the overall capture pipeline as follows:
 
 ```text
-                     Capture
-                        │
-                        ▼
-                Raw Screenshot
-                        │
-                        ▼
-              Image Processing
-                        │
-                        ▼
-                 OCR Service
-                        │
-                        ▼
-                 OCR Result
-                        │
-                        ▼
-                   IndexedDB
+AcquiredScreenshot
+        │
+        ▼
+Image Processing
+        │
+        ▼
+ProcessedImage
+        │
+        ▼
+Create ImageAsset / Capture
+        │
+        ▼
+Atomic persistence
+        │
+        ▼
+OCR
 ```
 
 The same normalized image may later be used by PDF generation.

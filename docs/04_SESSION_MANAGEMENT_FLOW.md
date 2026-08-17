@@ -1478,4 +1478,4 @@ The central principle is:
 
 > **A Snabby session is the persistent, ordered collection of captures that represents one document-building workflow.**
 
-The next subsystem should be **`05_IMAGE_PROCESSING_FLOW.md`**, because we need to establish exactly what happens to the raw screenshot between capture and OCR, including image validation, normalization, orientation handling, dimensions, and the representation passed into the OCR subsystem.
+Implementation status: Image Processing has now been finalized and implemented in document 05.

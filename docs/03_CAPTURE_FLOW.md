@@ -1261,4 +1261,4 @@ The key boundary is:
 
 > **Capture Stage 1 produces a valid, in-memory AcquiredScreenshot. Downstream persistence, processing, and OCR follow in later stages.**
 
-The next subsystem to document should be **Session Management**, because capture ordering and session ownership need to be fully defined before we design the IndexedDB schema.
+Implementation status: Session Management and Image Processing have now been finalized and implemented.
