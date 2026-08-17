@@ -645,9 +645,15 @@ Conceptually:
 
 ### Capture Adapter
 
-```text
-captureVisibleTab()
+The application-facing capture adapter contract is conceptually defined as:
+
+```typescript
+export interface CaptureAdapter {
+  capture(source: CaptureSource): Promise<Blob>;
+}
 ```
+
+Note: `chrome.tabs.captureVisibleTab()` is an infrastructure-specific implementation detail, not the application contract.
 
 ### Download Adapter
 
@@ -830,7 +836,10 @@ IndexedDB Error
 STORAGE_ERROR
 ```
 
-The final error classes are implemented as `DomainError` subclasses: `ValidationError`, `SessionNotFoundError`, and `DatabaseError`.
+The application and domain error classes are categorized as:
+- Domain Errors (extending `DomainError`): `ValidationError`, `SessionNotFoundError`
+- Persistence/Infrastructure Errors (extending `DomainError`): `DatabaseError`
+- Application Capture Errors (extending native `Error`): `CaptureError`
 
 ---
 

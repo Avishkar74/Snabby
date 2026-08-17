@@ -99,39 +99,25 @@ The actual screenshot capture is performed through the extension's capture pipel
 └─────────────┬─────────────┘
               ▼
 ┌───────────────────────────┐
-│    Identify Active Tab    │
+│     CaptureScreenshot     │
+│         Use Case          │
 └─────────────┬─────────────┘
               ▼
 ┌───────────────────────────┐
-│    Validate Capture       │
-│         Target            │
+│      CaptureAdapter       │
 └─────────────┬─────────────┘
               ▼
 ┌───────────────────────────┐
-│      Chrome Capture       │
-│           API             │
+│   ChromeCaptureAdapter    │
 └─────────────┬─────────────┘
               ▼
 ┌───────────────────────────┐
-│      Screenshot Data      │
+│   chrome.tabs.capture-    │
+│       VisibleTab()        │
 └─────────────┬─────────────┘
               ▼
 ┌───────────────────────────┐
-│      Validate Image       │
-└─────────────┬─────────────┘
-              ▼
-┌───────────────────────────┐
-│     Create Capture        │
-│        Metadata           │
-└─────────────┬─────────────┘
-              ▼
-┌───────────────────────────┐
-│ Associate With Session    │
-└─────────────┬─────────────┘
-              ▼
-┌───────────────────────────┐
-│       Persistence         │
-│        Pipeline           │
+│    AcquiredScreenshot     │
 └───────────────────────────┘
 ```
 
@@ -1209,32 +1195,37 @@ The following decisions are now finalized:
 3. **Capture Ordering**: Represented via a numeric `order` field on Capture, sorted natively using the compound index `sessionId_order`.
 4. **IndexedDB Object Stores**: Conceptual structure mapped to stores: `sessions`, `captures`, `images`, and `ocrResults`.
 5. **Transaction Boundaries**: Cascade transactions handled atomically within repository implementations.
-6. **Error Taxonomy**: Handled via custom domain exceptions (`ValidationError`, `SessionNotFoundError`, `DatabaseError`).
+6. **Error Taxonomy**: Handled via:
+   - Domain validation/not-found errors (`ValidationError`, `SessionNotFoundError`)
+   - Infrastructure database failures (`DatabaseError`)
+   - Application capture failures (`CaptureError` extending native `Error` defined in the application layer)
+7. **Chrome Screenshot API**: Finalized as `chrome.tabs.captureVisibleTab()` without `windowId`, targeting the active viewport of the current window.
+8. **Permissions**: Finalized as `activeTab`.
+9. **Active-Tab Resolution**: Handled natively by Chrome capture API; no separate `ActiveTabProvider` application interface is required.
+10. **FULL_SCREEN Viewport**: Maps directly to the visible viewport of the active tab (not the entire scrollable webpage).
+11. **Image Representation**: Data URL string from Chrome API converted directly into a binary `Blob` inside `ChromeCaptureAdapter`.
 
 ## 38.2 Open Questions for Later Design
 
 The following capture-specific questions remain open:
 
-1. **Chrome Screenshot API**: Exact API call used (`chrome.tabs.captureVisibleTab` vs debugger protocols).
-2. **Permissions Required**: Extension permission declarations in `manifest.json`.
-3. **Active-Tab Lookup**: Target tab querying mechanism.
-4. **Image representation between Chrome and application**: Handling the data URL from Chrome and converting to `Blob` inside the capture use case.
-5. **Retry Policy**: Recovery behavior for failed API screenshot attempts.
-6. **Concurrent Requests**: Locking mechanism for rapid overlapping capture attempts.
-7. **Shortcut Presses**: Handling rapid repeated shortcut keystrokes.
-8. **Restricted Pages**: Reporting and displaying errors on pages where extensions are blocked (e.g. `chrome://` settings).
-9. **Capture Progress Communication**: How start, intermediate state, and finish capture events are piped to the React UI.
+1. **Retry Policy**: Recovery behavior for failed API screenshot attempts.
+2. **Concurrent Requests**: Locking mechanism for rapid overlapping capture attempts.
+3. **Shortcut Presses**: Handling rapid repeated shortcut keystrokes.
+4. **Restricted Pages**: Reporting and displaying errors on pages where extensions are blocked (e.g. `chrome://` settings).
+5. **Capture Progress Communication**: How start, intermediate state, and finish capture events are piped to the React UI.
+6. **Future CROP_REGION implementation**: Detailed canvas selection cropping mechanics.
 
 ---
 
 # 39. Final Capture Flow
 
-The final conceptual flow for the capture subsystem is:
+The final conceptual flow for Snabby v1 Capture Stage 1 is:
 
 ```text
                     USER
                       │
-                      │ Ctrl/Cmd + Shift + S
+                      │ Ctrl/Cmd + Shift + S (Popup or Shortcut Trigger)
                       ▼
               Chrome Command
                       │
@@ -1242,55 +1233,32 @@ The final conceptual flow for the capture subsystem is:
                Service Worker
                       │
                       ▼
-              Capture Request
+              Capture Request (sessionId, captureMode)
                       │
                       ▼
-              Get Active Tab
+              CaptureScreenshot (Use Case)
                       │
                       ▼
-             Validate Target
+              CaptureAdapter (Interface)
                       │
                       ▼
-             Chrome Capture API
+             ChromeCaptureAdapter (Infrastructure)
                       │
                       ▼
-               Screenshot
+             chrome.tabs.captureVisibleTab()
                       │
                       ▼
-              Validate Image
+              Screenshot dataUrl string
                       │
-                 ┌────┴────┐
-                 │         │
-               Valid     Invalid
-                 │         │
-                 ▼         ▼
-          Create Capture  Error
-                 │
-                 ▼
-         Find/Create Session
-                 │
-                 ▼
-          Assign Capture Order
-                 │
-                 ▼
-             Persist Data
-                 │
-            ┌────┴─────┐
-            │          │
-          Success    Failure
-            │          │
-            ▼          ▼
-      Start Processing  Error
-            │
-            ▼
-      Image Processing
-            │
-            ▼
-           OCR
+                      ▼
+             Convert to binary Blob
+                      │
+                      ▼
+             AcquiredScreenshot produced
 ```
 
 The key boundary is:
 
-> **Capture produces a valid, identifiable, persisted Snabby capture. Everything after that belongs to downstream processing.**
+> **Capture Stage 1 produces a valid, in-memory AcquiredScreenshot. Downstream persistence, processing, and OCR follow in later stages.**
 
 The next subsystem to document should be **Session Management**, because capture ordering and session ownership need to be fully defined before we design the IndexedDB schema.
