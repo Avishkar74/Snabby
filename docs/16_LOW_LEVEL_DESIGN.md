@@ -949,18 +949,10 @@ React
 Capture Hook
   ↓
 Capture Use Case
+  ├── Capture Adapter ──→ Screenshot
+  └── Image Processor ──→ ProcessedImage
   ↓
-Capture Adapter
-  ↓
-Chrome
-  ↓
-Screenshot
-  ↓
-Image Processor
-  ↓
-Image Repository ──→ IndexedDB
-  ↓
-Capture Repository ─→ IndexedDB
+Composite Persistence (Atomic) ──→ IndexedDB
   ↓
 OCR Service
   ↓

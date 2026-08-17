@@ -216,18 +216,15 @@ The exact asynchronous behavior will be finalized in the LLD.
 
 # 5. Create Capture Record
 
-This is a lower-level persistence/application operation.
+This is an atomic application/infrastructure operation orchestrated by `CapturePersistenceService`:
 
-### Input
-
-```text
-CreateCaptureInput
-├── sessionId
-├── imageId
-├── order
-├── source
-└── metadata
+```typescript
+export interface CapturePersistenceService {
+  save(capture: Capture, image: ImageAsset): Promise<void>;
+}
 ```
+
+Which opens a single readwrite transaction over both `captures` and `images` stores to commit both records atomically.
 
 ### Output
 

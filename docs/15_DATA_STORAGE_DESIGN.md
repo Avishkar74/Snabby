@@ -509,9 +509,11 @@ Image Processing
     ↓
 Image Blob
     ↓
-Create Image Record
+Create ImageAsset + Capture
     ↓
-Create Capture Record
+CapturePersistenceService (Atomic transaction)
+    ↓
+IndexedDB ('captures' and 'images' stores)
     ↓
 Start OCR
 ```

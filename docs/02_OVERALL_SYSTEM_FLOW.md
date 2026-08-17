@@ -647,11 +647,13 @@ Capture 4
 Each capture goes through the common pipeline:
 
 ```text
-Capture
-  ↓
-Persist
+AcquiredScreenshot
   ↓
 Image Processing
+  ↓
+ProcessedImage
+  ↓
+Persist Image + Capture
   ↓
 OCR
   ↓
@@ -976,16 +978,12 @@ Putting everything together:
 └───────────────┬───────────────┘
                 ▼
 ┌───────────────────────────────┐
-│        Create Capture         │
-└───────────────┬───────────────┘
-                ▼
-┌───────────────────────────────┐
-│           IndexedDB           │
-│      Persist Image/Data       │
-└───────────────┬───────────────┘
-                ▼
-┌───────────────────────────────┐
 │       Image Processing        │
+└───────────────┬───────────────┘
+                ▼
+┌───────────────────────────────┐
+│      Persist Image + Capture  │
+│          (IndexedDB)          │
 └───────────────┬───────────────┘
                 ▼
 ┌───────────────────────────────┐
@@ -1077,11 +1075,11 @@ Webpage
   ↓
 Screenshot Image
   ↓
-Capture
-  ↓
-Stored Capture
+Image Processing
   ↓
 Processed Image
+  ↓
+Stored Capture & Image
   ↓
 OCR Request
   ↓
