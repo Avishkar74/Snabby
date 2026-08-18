@@ -431,20 +431,23 @@ It should not contain session or UI logic.
 
 # 16. `src/infrastructure/pdf/`
 
-PDF implementation.
+PDF infrastructure implementation directory.
 
 ```text
 src/infrastructure/pdf/
 │
-├── PdfService.ts
-├── PdfBuilder.ts
+├── PdfBuilder.ts         (existing placeholder; will be DELETED in Stage 5B)
+├── PdfExporter.ts        (existing placeholder; will be DELETED in Stage 5B)
+├── PdfLibPDFService.ts   (planned for Stage 5B; implements PDFService interface)
 └── coordinate/
-    └── ...
+    └── CoordinateMapper.ts (planned for Stage 5B; handles layout math and coordinate conversion)
 ```
 
-`pdf-lib` should only be imported here.
+Stale placeholder files `PdfBuilder.ts` and `PdfExporter.ts` will be removed during Stage 5B to eliminate competing or obsolete implementations. All PDF generation and assembly logic will be unified inside `PdfLibPDFService.ts`.
 
-The application layer should not directly import `pdf-lib`.
+`pdf-lib` must only be imported in this directory. The application layer should not directly import `pdf-lib`.
+
+
 
 ---
 
@@ -798,8 +801,16 @@ snabby/
 │   │   ├── capture/
 │   │   ├── ocr/
 │   │   ├── pdf/
+│   │   │   ├── GeneratePDF.ts
+│   │   │   └── DownloadPDF.ts
 │   │   └── interfaces/
 │   │       ├── repositories/
+│   │       ├── services/
+│   │       │   ├── CapturePersistenceService.ts
+│   │       │   ├── ImageProcessor.ts
+│   │       │   ├── OCRService.ts
+│   │       │   ├── PDFService.ts
+│   │       │   └── DownloadService.ts
 │   │       ├── adapters/
 │   │       └── messaging/
 │   │           └── MessageBus.ts
@@ -816,6 +827,7 @@ snabby/
 │   │   ├── chrome/
 │   │   │   ├── capture/
 │   │   │   ├── downloads/
+│   │   │   │   └── ChromeDownloadAdapter.ts
 │   │   │   ├── tabs/
 │   │   │   └── runtime/
 │   │   │
@@ -827,8 +839,9 @@ snabby/
 │   │   │       └── offscreen.ts
 │   │   │
 │   │   ├── pdf/
-│   │   │   ├── PdfService.ts
-│   │   │   └── PdfBuilder.ts
+│   │   │   ├── PdfLibPDFService.ts
+│   │   │   └── coordinate/
+│   │   │       └── CoordinateMapper.ts
 │   │   │
 │   │   └── messaging/
 │   │       ├── MessageBus.ts (re-export)

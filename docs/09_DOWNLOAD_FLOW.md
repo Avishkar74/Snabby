@@ -26,7 +26,7 @@ The download subsystem is responsible for:
 
 * Receiving the generated PDF Blob.
 * Generating the filename.
-* Creating a temporary object URL.
+* Converting the Blob to a Base64 data URL.
 * Triggering the browser download.
 * Cleaning up temporary resources.
 * Reporting download errors.
@@ -73,7 +73,7 @@ PDF Blob
 Generate Filename
         │
         ▼
-Create Object URL
+Convert to Base64 URL
         │
         ▼
 Create Download Request
@@ -85,7 +85,7 @@ Chrome Download API
 Browser Saves PDF
         │
         ▼
-Revoke Object URL
+Clean up URL reference
         │
         ▼
 Download Complete
@@ -139,11 +139,11 @@ Filename sanitization belongs to the download layer because it is a filesystem/b
 
 ---
 
-# 7. Object URL
+# 7. Base64 Data URL
 
 The generated PDF exists in memory as a `Blob`.
 
-The browser download API needs a URL that points to that Blob.
+The browser download API needs a URL that points to the PDF data. Since MV3 extension service workers do not support `URL.createObjectURL()`, the adapter converts the Blob to a Base64-encoded data URL.
 
 Conceptually:
 
@@ -151,13 +151,16 @@ Conceptually:
 PDF Blob
    │
    ▼
-URL.createObjectURL(blob)
+ArrayBuffer
    │
    ▼
-blob:...
+Base64 String
+   │
+   ▼
+data:application/pdf;base64,...
 ```
 
-The resulting temporary URL is used only for the download operation.
+The resulting temporary data URL is used only for the download operation.
 
 ---
 
@@ -168,7 +171,7 @@ The extension can trigger the browser's download mechanism through the Chrome Do
 Conceptually:
 
 ```text
-Object URL
+Base64 Data URL
     │
     ▼
 chrome.downloads.download(...)
@@ -180,16 +183,18 @@ Chrome Download Manager
 File saved
 ```
 
-The download implementation should be isolated behind a small abstraction.
+The download implementation is isolated behind the `DownloadService` interface contract.
 
 For example, conceptually:
 
 ```text
-DownloadService
+DownloadPDF Use Case
       ↓
-BrowserDownloadAdapter
+DownloadService.download(pdfBlob, filename)
       ↓
-chrome.downloads
+ChromeDownloadAdapter
+      ↓
+chrome.downloads.download()
 ```
 
 The rest of Snabby should not directly call the Chrome API.
@@ -201,21 +206,23 @@ The rest of Snabby should not directly call the Chrome API.
 Instead of:
 
 ```text
-PDF Generator
-     ↓
+PDF Generator / Use Case
+      ↓
 chrome.downloads.download()
 ```
 
 we want:
 
 ```text
-PDF Generator
-     ↓
+PDF Use Case
+      ↓
 PDF Blob
-     ↓
-Download Service
-     ↓
-Chrome Download Adapter
+      ↓
+DownloadPDF Use Case
+      ↓
+DownloadService.download(pdfBlob, filename)
+      ↓
+ChromeDownloadAdapter
 ```
 
 This keeps:
@@ -264,29 +271,23 @@ The exact behavior will be decided in the LLD.
 
 ---
 
-# 11. Object URL Cleanup
+# 11. Memory Cleanup
 
-The object URL consumes browser resources.
-
-After the download request has been safely initiated, Snabby should release it:
-
-```text
-URL.revokeObjectURL(objectUrl)
-```
+The base64-encoded data URL string consumes memory. After the download request has been safely initiated, Snabby should release it (setting the variable references to null or letting them fall out of scope) to allow standard garbage collection.
 
 Conceptually:
 
 ```text
-Create URL
+Convert to Base64
     ↓
-Use URL
+Start Download
     ↓
-Download initiated
+Download accepted
     ↓
-Revoke URL
+Release base64 references
 ```
 
-Cleanup should also happen when an error occurs after URL creation.
+Cleanup should also happen when an error occurs after encoding.
 
 ---
 
@@ -297,10 +298,9 @@ Possible failures include:
 ```text
 Invalid PDF Blob
 Filename Generation Error
-Object URL Creation Error
+Base64 Encoding Error
 Chrome Download Error
 Permission/Browser Error
-Cleanup Error
 ```
 
 The important behavior is:
@@ -438,23 +438,23 @@ Whether the generated PDF Blob is retained for retry or the PDF is regenerated w
              Sanitize Filename
                      │
                      ▼
-             Create Object URL
+            Convert to Base64 URL
                      │
                      ▼
-            Download Adapter
+             Download Adapter
                      │
                      ▼
-          Chrome Downloads API
+           Chrome Downloads API
                      │
                 ┌────┴────┐
                 │         │
              Success    Failure
                 │         │
                 ▼         ▼
-          Cleanup URL   Cleanup URL
+          Release Mem   Release Mem
                 │         │
                 ▼         ▼
-           Completed    Error
+            Completed    Error
 ```
 
 ---
@@ -464,24 +464,24 @@ Whether the generated PDF Blob is retained for retry or the PDF is regenerated w
 1. Downloading does not modify persistent session data.
 2. PDF generation and downloading remain separate operations.
 3. Chrome-specific download APIs are isolated behind an adapter.
-4. Temporary object URLs are cleaned up.
+4. Temporary Base64 URL references are released.
 5. Download failure does not invalidate the generated PDF or session.
 6. Filename generation is centralized rather than scattered through the UI.
 
 ---
 
-# 19. Open Questions
+# 19. Reconciled Download Decisions
 
-These will be resolved during LLD:
+### Decision 1 — Filename Format
+- **Format**: `Snabby_<session-name>.pdf` (with whitespace replaced by underscores and invalid characters removed).
+- **Fallback**: If the session has no name, the filename is `Snabby_<timestamp>.pdf`, where timestamp is milliseconds since Unix epoch.
 
-1. Exact filename format.
-2. Whether the filename includes session name, date, or timestamp.
-3. Whether download completion is monitored.
-4. Whether the PDF Blob is cached for retry.
-5. Exact Chrome Downloads API configuration.
-6. Download folder/subdirectory behavior.
-7. Exact download error mapping.
-8. Whether the UI exposes download progress.
+### Decision 2 — MV3 Blob URL Fallback
+- Since `URL.createObjectURL` is unavailable inside extension background service workers, the `ChromeDownloadAdapter` (implementing `DownloadService` inside the infrastructure layer) reads the PDF Blob as an ArrayBuffer, converts it to a Base64 string, and constructs a `data:application/pdf;base64,...` URL.
+
+### Decision 3 — Chrome Downloads API Integration
+- The Base64 data URL is passed directly to the `chrome.downloads.download` API.
+- The `"downloads"` permission must be added to `manifest.json` in Stage 5B.
 
 ---
 
@@ -494,22 +494,27 @@ React
 Generate PDF Use Case
   │
   ▼
-PDF Generator
+PDFService (generate)
   │
   ▼
 PDF Blob
   │
   ▼
-Download Service
+Download PDF Use Case
   │
   ▼
-Browser Download Adapter
+DownloadService.download(pdfBlob, filename)
+  │
+  ▼
+ChromeDownloadAdapter (Blob → ArrayBuffer → Base64 conversion)
   │
   ▼
 Chrome Downloads API
+```
   │
   ▼
-User's Downloads
+User's Downloads folder
 ```
 
-> **Core principle:** PDF generation produces the document; the download subsystem is responsible only for transferring that generated document to the user's filesystem through the browser.
+> **Core principle:** PDF generation produces the document; the download subsystem converts the Blob into a Base64 data URL and initiates the browser's download manager.
+

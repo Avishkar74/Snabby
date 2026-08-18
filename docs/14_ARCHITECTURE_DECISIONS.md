@@ -296,67 +296,41 @@ The exact implementation will be defined in the LLD.
 # 13. PDF Generation
 
 ### Decision
-
-**Keep `pdf-lib` as the PDF generation library.**
-
-The existing PDF implementation already provides:
-
-* image embedding
-* page creation
-* aspect-ratio-preserving scaling
-* OCR text layer
-* word-level OCR positioning
-* invisible/selectable text
-
-This behavior is valuable and should be preserved.
-
-New architecture:
-
-```text
-PDF Service
-    ↓
-PDF Builder
-    ↓
-pdf-lib
-```
+- **Library**: Use `pdf-lib` as the exclusive PDF builder implementation library.
+- **Boundary**: Orchestration is owned by `GeneratePDF` usecase in the application layer. The actual file assembly is handled by `PdfLibPDFService` in the infrastructure layer.
+- **Loading Responsibility**: `GeneratePDF` usecase is responsible for loading the `Session` and `Captures` from IndexedDB. It delegates compilation to `PDFService.generate(session, captures)`. `PdfLibPDFService` is responsible for loading the screenshot images and OCR results for each capture from IndexedDB during building.
+- **Page Layout**: One capture per page, ordered by session-specified sequence. 
+- **Page Sizing**: Dynamic A4 portrait / landscape page size strategy is used to prevent aspect-ratio stretching:
+  - If screenshot `W >= H`, page is A4 landscape (`842 x 595` points).
+  - If screenshot `W < H`, page is A4 portrait (`595 x 842` points).
+  - Images are centered and uniforms-scaled using standard contain-fit math:
+    - `scale = min(pageWidth / imageWidth, pageHeight / imageHeight)`
+    - `imgLeft = (pageWidth - renderedWidth) / 2`
+    - `imgBottom = (pageHeight - renderedHeight) / 2`
 
 ---
 
 # 14. OCR Text Layer
 
 ### Decision
-
-Preserve the existing approach:
-
-```text
-Screenshot
-     +
-Invisible OCR text
-```
-
-The PDF generator uses word bounding boxes and transforms Tesseract's top-left coordinate system into PDF coordinates. 
-
-This is a core Snabby feature and should not be removed during the rewrite.
+- **Overlay Strategy**: Render an invisible selectable text layer on top of the screenshot using `drawText` with `opacity: 0` at word-level. The visual screenshot image serves as the graphical layer.
+- **Font Size**: Calculated as `fontSize = h_pdf` points (matching the calculated PDF word height) to preserve selection layout.
+- **Coordinate Conversion**: Maps Tesseract top-left coordinates to PDF bottom-left coordinates:
+  - `w_pdf = w_img * scale`
+  - `h_pdf = h_img * scale`
+  - `x_pdf = imgLeft + (x_img * scale)`
+  - `y_pdf = imgBottom + (imageHeight - y_img - h_img) * scale`
 
 ---
 
 # 15. Download
 
 ### Decision
+- **Boundary**: Isolated behind the `DownloadPDF` usecase, `DownloadService` interface, and `ChromeDownloadAdapter`.
+- **Application Contract**: The `DownloadPDF` usecase receives the raw `pdfBlob` and `filename`, passing them to `DownloadService.download(pdfBlob, filename)` in a technology-independent manner.
+- **Infrastructure Detail**: Converting the Blob to an ArrayBuffer and then a Base64 data URL is handled as an infrastructure implementation detail inside `ChromeDownloadAdapter`, before invoking `chrome.downloads.download()`.
+- **Separation**: React UI triggers the usecase but holds no direct downloads or Blob URL reference manipulation.
 
-Keep PDF generation and downloading as separate responsibilities.
-
-```text
-PDF Service
-    ↓
-PDF Blob
-    ↓
-Download Service
-    ↓
-Chrome Downloads API
-```
-
-The PDF generator should not own browser download behavior.
 
 ---
 

@@ -489,80 +489,92 @@ This creates a boundary between the external OCR library and Snabby's internal m
 
 # 15. PDF Functions
 
-## 15.1 Generate PDF
+## 15.1 Generate PDF Usecase
+
+### Component Location
+- planned for Stage 5B: `src/application/pdf/GeneratePDF.ts`
 
 ### Input
-
-```text
-GeneratePDFInput
-├── sessionId
-└── skipPendingOcr
-```
-
-The PDF generator can retrieve everything else through repositories.
-
-```text
-skipPendingOcr = false
-   Wait for/run pending OCR before finalizing.
-
-skipPendingOcr = true
-   Generate immediately and omit only OCR that is not ready.
-   Completed OCR is still included.
+```typescript
+interface GeneratePDFInput {
+  sessionId: string;
+  skipPendingOcr: boolean;
+}
 ```
 
 ### Output
-
-```text
-PDFBlob
+```typescript
+type PDFBlob = Blob;
 ```
 
-### Flow
+### Exceptions
+- `SessionNotFoundError`: Session does not exist in DB.
+- `NoCapturesError`: Session has no captures.
+- `PDFGenerationError`: Internal failure during page creation, scaling, or document finalization (wraps any database or pdf-lib exceptions).
 
-```text
-sessionId
-    ↓
-Load Session
-    ↓
-Load Ordered Captures
-    ↓
-Load Images
-    ↓
-Load OCR Results
-    ↓
-Create PDF
-    ↓
-Return Blob
+### Orchestration Flow
+1. Load `Session` from `SessionRepository`.
+2. Load all `Capture`s from `CaptureRepository` using `sessionId` (re-sort using `order` property).
+3. If `skipPendingOcr = false`, check for any captures in `PENDING` or `PROCESSING` state and poll the database until they transition to `COMPLETED` or `FAILED`.
+4. Call `PDFService.generate(session, captures)` to compile the document bytes.
+5. Return the resulting `Blob`.
+
+---
+
+## 15.2 PDFService Interface
+
+### Component Location
+- already implemented: `src/application/interfaces/services/PDFService.ts`
+
+### Interface Contract
+```typescript
+export interface PDFService {
+  generate(session: Session, captures: Capture[]): Promise<Blob>;
+}
 ```
 
 ---
 
-# 16. Download PDF
+# 16. Download PDF Usecase
+
+## 16.1 Download PDF
+
+### Component Location
+- planned for Stage 5B: `src/application/pdf/DownloadPDF.ts`
 
 ### Input
-
-```text
-DownloadPDFInput
-├── pdfBlob
-└── filename
+```typescript
+interface DownloadPDFInput {
+  pdfBlob: Blob;
+  filename: string;
+}
 ```
 
 ### Output
-
-```text
-DownloadResult
+```typescript
+type DownloadResult = void;
 ```
 
-Potentially:
+### Exceptions
+- `DownloadFailedError`: Triggers when Chrome Downloads API rejects the file write or download fails.
 
-```text
-DownloadResult
-├── success
-└── downloadId
-```
-
-The exact result depends on how much Chrome download state we expose.
+### Orchestration Flow
+1. Delegate to `DownloadService.download(pdfBlob, filename)`.
 
 ---
+
+## 16.2 DownloadService Interface
+
+### Component Location
+- planned for Stage 5B: `src/application/interfaces/services/DownloadService.ts`
+
+### Interface Contract
+```typescript
+export interface DownloadService {
+  download(pdfBlob: Blob, filename: string): Promise<void>;
+}
+```
+
 
 # 17. Generate Filename
 

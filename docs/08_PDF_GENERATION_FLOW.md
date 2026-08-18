@@ -28,44 +28,36 @@ PDF Blob
 
 # 2. Responsibilities
 
-The PDF subsystem is responsible for:
+The responsibilities are split between the application use case and the infrastructure service:
 
-* Loading the data required for PDF generation.
-* Creating the PDF document.
-* Creating one page per capture.
-* Placing screenshots on pages.
-* Transforming OCR coordinates.
-* Adding the OCR text layer.
-* Finalizing the PDF.
-* Returning the generated PDF.
+- **GeneratePDF Usecase (Application Layer)**:
+  - Receives `GeneratePDFInput` containing `sessionId` and `skipPendingOcr`.
+  - Loads the `Session` from `SessionRepository`.
+  - Loads ordered `Capture`s associated with the session from `CaptureRepository`.
+  - Coordinates polling of pending OCR results if `skipPendingOcr = false`.
+  - Invokes `PDFService.generate(session, captures)`.
+  - Returns the generated PDF `Blob`.
 
-It is **not** responsible for:
-
-* Screenshot capture.
-* OCR computation.
-* Session management.
-* IndexedDB implementation.
-* Browser downloading.
+- **PdfLibPDFService (Infrastructure Layer)**:
+  - Receives the loaded `Session` and ordered `Capture`s.
+  - Sequentially loops over each capture.
+  - Loads the raw screenshot `Image` Blob from `ImageRepository`.
+  - Loads the `OCRResult` (if available) from `OCRRepository`.
+  - Performs scaling and coordinate translation.
+  - Employs `pdf-lib` to create pages, embed graphics, overlay transparent OCR text layers, and compile the final PDF `Blob`.
 
 ---
 
-# 3. Input
+# 3. Input / Output Boundaries
 
-Conceptually:
-
-```text
-PDFGenerationInput
-│
-├── session
-└── ordered captures
-      │
-      ├── image
-      └── OCR result (optional)
-```
-
-The captures must already be ordered by the session.
-
-The PDF generator should not independently determine capture order.
+- **Usecase Input**:
+  - `sessionId: string`
+  - `skipPendingOcr: boolean`
+- **PDFService.generate Input**:
+  - `session: Session`
+  - `captures: Capture[]`
+- **PDFService.generate Output**:
+  - `Promise<Blob>` (PDF Blob data)
 
 ---
 
@@ -75,29 +67,23 @@ The PDF generator should not independently determine capture order.
 User clicks Download
         │
         ▼
-Generate PDF Use Case
+GeneratePDF Use Case (Application)
+        │
+        ├── Load Session (SessionRepository)
+        └── Load Ordered Captures (CaptureRepository)
         │
         ▼
-Load Session
+PDFService.generate(session, captures) (Infrastructure)
+        │
+        ├── [Loop Captures]
+        │     ├── Load Image (ImageRepository)
+        │     ├── Load OCR Result (OCRRepository)
+        │     ├── Calculate Image Scaling
+        │     ├── Centered Draw Screenshot on Page
+        │     └── Transform & Draw Transparent OCR Text
         │
         ▼
-Load Ordered Captures
-        │
-        ▼
-Create PDF Document
-        │
-        ▼
-For Each Capture
-        │
-        ├── Load Image
-        ├── Load OCR Result
-        ├── Create Page
-        ├── Calculate Image Placement
-        ├── Add Screenshot
-        └── Add OCR Text Layer
-        │
-        ▼
-Finalize PDF
+Finalize Document (pdf-lib)
         │
         ▼
 PDF Blob
@@ -813,50 +799,54 @@ PDFGenerationError
 # 30. Design Decisions
 
 ### Decision 1 — One capture = one PDF page
-
 This keeps the relationship simple and predictable.
 
 ### Decision 2 — Session order controls page order
-
 No independent ordering logic exists inside the PDF generator.
 
 ### Decision 3 — Screenshot remains the visual layer
-
 The OCR layer supplements the screenshot rather than replacing it.
 
 ### Decision 4 — OCR is optional during PDF generation
-
-A capture can still produce an image-only page.
+A capture can still produce an image-only page if OCR failed or is omitted.
 
 ### Decision 5 — Coordinate conversion happens only during PDF generation
-
 Stored OCR coordinates remain in image coordinates.
 
 ### Decision 6 — PDF generation is independent of downloading
+The PDF subsystem produces a Blob; the download subsystem triggers the browser download.
 
-The PDF subsystem produces a Blob; another subsystem handles the browser download.
+### Decision 7 — Page Size and Scaling (A4 Contain-Fit)
+To accommodate landscape and portrait captures cleanly:
+- If `W >= H`, the page size is A4 landscape (`width = 842`, `height = 595`).
+- If `W < H`, the page size is A4 portrait (`width = 595`, `height = 842`).
+- Contain-fit uniform scaling is used:
+  - `scaleX = pageWidth / W`
+  - `scaleY = pageHeight / H`
+  - `scale = min(scaleX, scaleY)`
+  - `renderedWidth = W * scale`
+  - `renderedHeight = H * scale`
+- The screenshot is centered on the page:
+  - `imgLeft = (pageWidth - renderedWidth) / 2`
+  - `imgBottom = (pageHeight - renderedHeight) / 2`
 
----
+### Decision 8 — Coordinate Transformation Formula
+OCR bounding boxes `(x_img, y_img, w_img, h_img)` (with top-left origin) are mapped to PDF coordinates `(x_pdf, y_pdf)` (with bottom-left origin) using:
+- `w_pdf = w_img * scale`
+- `h_pdf = h_img * scale`
+- `x_pdf = imgLeft + (x_img * scale)`
+- `y_pdf = imgBottom + (imageHeight - y_img - h_img) * scale`
 
-# 31. Open Questions
+### Decision 9 — OCR Text Overlay Strategy
+Text is drawn on top of the screenshot using `pdf-lib`'s `drawText` with `opacity: 0` at word-level to allow selection and searching without causing visual duplication. Font size is set to `h_pdf` to match the visual height.
 
-These will be resolved during LLD:
+### Decision 10 — OCR Status & skipPendingOcr Behavior
+- **`skipPendingOcr = false`**: The GeneratePDF usecase polls the database/status until all captures are in a terminal state (`COMPLETED` or `FAILED`). If any capture's OCR is `PENDING`/`PROCESSING`, it waits.
+- **`skipPendingOcr = true`**: Usecase compiles the PDF immediately. Captures with completed OCR get the overlay layer; captures with pending or failed OCR are rendered as image-only pages.
 
-1. Which PDF library will be used?
-2. Exact PDF page-size strategy.
-3. Whether pages preserve exact screenshot aspect ratio.
-4. Whether screenshots are scaled to fit or fill the page.
-5. How page margins are handled.
-6. Exact image-to-PDF scaling formula.
-7. Exact PDF coordinate conversion.
-8. OCR font-size calculation.
-9. How invisible text is implemented.
-10. Whether OCR words or lines are placed individually.
-11. PDF metadata such as title/filename.
-12. How large sessions are processed.
-13. Whether PDF generation should stream or build entirely in memory.
-14. Exact behavior when OCR is unavailable.
-15. Exact error and retry behavior.
+### Decision 11 — Memory Strategy
+Captures are processed one at a time. The image binary is loaded, embedded into the PDF document, and intermediate ArrayBuffer/Blob resources are immediately released for garbage collection.
+
 
 ---
 

@@ -565,83 +565,56 @@ The capture itself remains valid.
 
 # 21. PDF Architecture
 
-PDF generation is separated into:
+PDF generation is structured as follows:
 
-```text
-PDF Use Case
-      ↓
-PDF Service
-      ↓
-PDF Builder
-      ↓
-pdf-lib
-```
-
-The PDF service retrieves the required data through repositories.
+- **GeneratePDF Usecase**: orchestrates the process. Loaded via `GeneratePDF.execute({ sessionId, skipPendingOcr })`.
+- **SessionRepository**: loads the session.
+- **CaptureRepository**: loads the capture list for the session (re-sorted by `order`).
+- **PDFService**: application interface contract defining `generate(session: Session, captures: Capture[]): Promise<Blob>`.
+- **PdfLibPDFService**: infrastructure adapter implementing `PDFService` and referencing the repositories to load raw Blob `images` and `ocrResults` for each capture, compiling the document via `pdf-lib`.
 
 ---
 
-# 22. PDF Generation Flow
+# 22. PDF Sizing, Scaling & Layout Formulas
 
-```text
-GeneratePDF(sessionId)
-          ↓
-Load Session
-          ↓
-Load Ordered Captures
-          ↓
-Load Images
-          ↓
-Load OCR Results
-          ↓
-PDF Builder
-          ↓
-pdf-lib
-          ↓
-PDF Blob
-```
-
-The PDF builder should not query IndexedDB directly.
+For each capture:
+- Let `W` and `H` be the screenshot dimensions (in pixels).
+- The page size in points is dynamically chosen:
+  - If `W >= H`: `pageWidth = 842`, `pageHeight = 595` (A4 landscape orientation)
+  - If `W < H`: `pageWidth = 595`, `pageHeight = 842` (A4 portrait orientation)
+- Uniform contain-fit scaling is applied:
+  - `scale = min(pageWidth / W, pageHeight / H)`
+  - `renderedWidth = W * scale`
+  - `renderedHeight = H * scale`
+- The image is centered on the page:
+  - `imgLeft = (pageWidth - renderedWidth) / 2`
+  - `imgBottom = (pageHeight - renderedHeight) / 2`
 
 ---
 
-# 23. PDF OCR Layer
+# 23. PDF OCR Coordinates Mapping
 
-The PDF builder receives:
+OCR word coordinate bounding boxes `(x_img, y_img, w_img, h_img)` in top-left origin image-space are mapped to bottom-left origin PDF coordinates `(x_pdf, y_pdf)` on the page via:
+- `w_pdf = w_img * scale`
+- `h_pdf = h_img * scale`
+- `x_pdf = imgLeft + (x_img * scale)`
+- `y_pdf = imgBottom + (H - y_img - h_img) * scale`
 
-```text
-Image
-+
-OCRResult
-```
-
-and creates:
-
-```text
-PDF Page
-├── Screenshot Image
-└── Invisible OCR Text
-```
-
-OCR coordinates are transformed into PDF coordinates during PDF construction.
+The text is overlayed on top of the screenshot image at `(x_pdf, y_pdf)` using Helvetica font, size `h_pdf` points, and `opacity: 0` to enable native browser PDF selectable and searchable text without causing visual clutter.
 
 ---
 
 # 24. Download Architecture
 
-Downloading is separate from PDF generation.
+Downloading is isolated behind the `DownloadPDF` usecase, `DownloadService` interface, and `ChromeDownloadAdapter`.
+The application-level usecase and interface remain completely technology-independent:
+- `DownloadPDF` usecase receives `(pdfBlob: Blob, filename: string)`.
+- It delegates directly to `DownloadService.download(pdfBlob, filename)`.
 
-```text
-PDF Blob
-   ↓
-Download Service
-   ↓
-Download Adapter
-   ↓
-Chrome Downloads API
-```
-
-The PDF generator does not know how the browser downloads files.
+The infrastructure layer adapter (`ChromeDownloadAdapter`) implements the `DownloadService` interface and handles extension-specific details:
+- Since MV3 extension service workers do not support `URL.createObjectURL()`, `ChromeDownloadAdapter` reads the `pdfBlob` as an ArrayBuffer and converts it to a Base64 string.
+- It then constructs a `data:application/pdf;base64,...` URL and executes: `chrome.downloads.download({ url: dataUrl, filename: sanitizedFilename })`.
+- Clean up: The temporary memory references are cleared upon completion or failure.
 
 ---
 
@@ -650,7 +623,7 @@ The PDF generator does not know how the browser downloads files.
 Conceptually:
 
 ```text
-DownloadAdapter
+DownloadService
 └── download(blob, filename)
 ```
 
@@ -661,6 +634,7 @@ ChromeDownloadAdapter
         ↓
 chrome.downloads
 ```
+
 
 This isolates browser-specific download behavior.
 
