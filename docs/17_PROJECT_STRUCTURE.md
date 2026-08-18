@@ -388,9 +388,8 @@ OCR implementation.
 src/infrastructure/ocr/
 │
 ├── TesseractOCRAdapter.ts
-├── OCRResultNormalizer.ts
-└── worker/
-    └── ...
+├── TesseractWorker.ts
+└── offscreen/
 ```
 
 The Tesseract-specific implementation stays here.
@@ -822,7 +821,7 @@ snabby/
 │   │   │
 │   │   ├── ocr/
 │   │   │   ├── TesseractOCRAdapter.ts
-│   │   │   ├── OCRResultNormalizer.ts
+│   │   │   ├── TesseractWorker.ts
 │   │   │   └── offscreen/
 │   │   │       ├── offscreen.html
 │   │   │       └── offscreen.ts
