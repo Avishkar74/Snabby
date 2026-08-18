@@ -225,10 +225,13 @@ src/application/interfaces/
 │   ├── ImageRepository.ts
 │   └── OCRRepository.ts
 │
-└── adapters/
-    ├── CaptureAdapter.ts
-    ├── OCRAdapter.ts
-    └── DownloadAdapter.ts
+├── adapters/
+│   ├── CaptureAdapter.ts
+│   ├── OCRAdapter.ts
+│   └── DownloadAdapter.ts
+│
+└── messaging/
+    └── MessageBus.ts
 ```
 
 This enables dependency inversion.
@@ -798,7 +801,9 @@ snabby/
 │   │   ├── pdf/
 │   │   └── interfaces/
 │   │       ├── repositories/
-│   │       └── adapters/
+│   │       ├── adapters/
+│   │       └── messaging/
+│   │           └── MessageBus.ts
 │   │
 │   ├── infrastructure/
 │   │   ├── indexeddb/
@@ -827,9 +832,9 @@ snabby/
 │   │   │   └── PdfBuilder.ts
 │   │   │
 │   │   └── messaging/
-│   │       ├── MessageBus.ts
-│   │       ├── message.types.ts
-│   │       ├── message.validator.ts
+│   │       ├── MessageBus.ts (re-export)
+│   │       ├── MessageTypes.ts
+│   │       ├── MessageValidator.ts
 │   │       └── ChromeMessageBus.ts
 │   │
 │   └── shared/

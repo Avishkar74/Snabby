@@ -579,51 +579,43 @@ Process
 Persist processed state
 ```
 
-The overall architecture currently favors **persisting the valid capture before downstream processing**, as established in the capture flow.
+The overall architecture currently favors **image processing before persistence**, so that only valid, normalized image assets are saved to IndexedDB.
 
 Therefore:
 
 ```text
-Capture
-  ↓
-Persist
+AcquiredScreenshot
   ↓
 Image Processing
+  ↓
+ProcessedImage
+  ↓
+Persist Image + Capture
   ↓
 OCR
 ```
 
 is the primary flow.
 
-This provides an important recovery property:
+This provides an important validation property:
 
-> If image processing or OCR fails, the original screenshot remains available.
+> If image decoding or validation fails, the transaction is not committed and no corrupted/broken records are persisted.
 
 ---
 
-# 22. Recovery From Processing Failure
+# 22. Handling Processing Failure
 
 Suppose:
 
 ```text
-Capture
-  ↓
-Persisted
+AcquiredScreenshot
   ↓
 Image Processing
   ↓
-Failure
+Failure (e.g. invalid format/corrupt)
 ```
 
-The capture should remain in IndexedDB.
-
-The system can represent:
-
-```text
-Capture = valid
-Processing = failed
-OCR = not completed
-```
+The save step is not reached, the transaction is never opened, and the use case aborts immediately by propagating an `ImageProcessingError`.
 
 This means the image can potentially be processed again.
 

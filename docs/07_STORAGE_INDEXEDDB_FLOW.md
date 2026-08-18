@@ -2219,16 +2219,13 @@ A more accurate relationship between the persisted data is:
 And the primary application flow is:
 
 ```text
-Capture
-   │
-   ▼
-Create Session / Find Session
-   │
-   ▼
-Persist Capture + Image
+Capture Mode (FULL_SCREEN)
    │
    ▼
 Image Processing
+   │
+   ▼
+Persist Capture + Image (Atomic)
    │
    ▼
 OCR

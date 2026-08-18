@@ -121,11 +121,11 @@ It should not be responsible for deciding how the resulting PDF is constructed.
 The complete relationship is:
 
 ```text
-Capture
-   ↓
-Persist Screenshot
+AcquiredScreenshot
    ↓
 Image Processing
+   ↓
+Persist Image + Capture
    ↓
 OCR
    ↓

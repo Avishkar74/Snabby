@@ -1,3 +1,1 @@
-export interface MessageBus {
-  publish(event: string, payload: any): void;
-}
+export * from '../../application/interfaces/messaging/MessageBus.ts';

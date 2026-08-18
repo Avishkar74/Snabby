@@ -505,10 +505,10 @@ Service Worker
 Screenshot
   │
   ▼
-Persist Capture
+Image Processing
   │
   ▼
-Image Processing
+Persist Capture + Image (Atomic)
   │
   ▼
 OCR

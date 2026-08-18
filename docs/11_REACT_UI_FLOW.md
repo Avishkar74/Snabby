@@ -283,9 +283,9 @@ Chrome Capture API
       ↓
 Screenshot
       ↓
-Persist Capture
-      ↓
 Image Processing
+      ↓
+Persist Capture + Image (Atomic)
       ↓
 OCR
       ↓

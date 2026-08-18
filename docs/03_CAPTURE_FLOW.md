@@ -669,18 +669,21 @@ The final transaction strategy will be defined in:
 
 ---
 
-# 23. Capture Processing After Persistence
+# 23. Capture Persistence and Processing Flow
 
-Once the screenshot is safely persisted, it enters the downstream processing pipeline.
+Once the screenshot is acquired and processed, the image and capture metadata are persisted atomically, followed by downstream OCR processing.
 
 ```text
-Capture
-   │
-   ▼
-Persist
+AcquiredScreenshot
    │
    ▼
 Image Processing
+   │
+   ▼
+ProcessedImage
+   │
+   ▼
+Persist Image + Capture
    │
    ▼
 OCR

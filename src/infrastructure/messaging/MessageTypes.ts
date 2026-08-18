@@ -1,4 +1,1 @@
-export interface Message {
-  type: string;
-  payload: any;
-}
+export * from '../../application/interfaces/messaging/MessageBus.ts';
