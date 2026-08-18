@@ -16,5 +16,14 @@
   "background": {
     "service_worker": "assets/background.js",
     "type": "module"
+  },
+  "commands": {
+    "capture-visible": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Capture visible viewport screenshot"
+    }
   }
 }

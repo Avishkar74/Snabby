@@ -559,31 +559,26 @@ The important requirement is that the application must not report the capture as
 
 # 19. Add-Capture Transaction
 
-Adding a capture may affect multiple records.
+Adding a capture affects the capture metadata and the raw screenshot image asset.
 
 Conceptually:
 
 ```text
 Add Capture
     │
-    ├── Create/Update Session
     ├── Create Capture
     └── Store Image
 ```
 
-These operations may need to happen atomically.
+These operations happen atomically inside a single multi-store transaction.
 
-The desired property is:
+The transaction scope is:
 
 ```text
-Either:
+['captures', 'images']
+```
 
-Session + Capture + Image
-       all persist
-
-or:
-
-No incomplete capture state is committed
+The `sessions` store is NOT part of this atomic transaction. Either the capture and image are both persisted successfully, or no incomplete state is committed.
 ```
 
 The IndexedDB transaction scopes are isolated to their specific repository implementations.
