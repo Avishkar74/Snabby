@@ -1,4 +1,5 @@
 import { IndexedDBCaptureRepository } from '../infrastructure/indexeddb/repositories/IndexedDBCaptureRepository.ts';
+import { IndexedDBImageRepository } from '../infrastructure/indexeddb/repositories/IndexedDBImageRepository.ts';
 import { IndexedDBOCRRepository } from '../infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts';
 import { IndexedDBSessionRepository } from '../infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts';
 import { IndexedDBCapturePersistenceService } from '../infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts';
@@ -7,11 +8,15 @@ import { ChromeCaptureAdapter } from '../infrastructure/chrome/capture/ChromeCap
 import { BrowserImageProcessor } from '../infrastructure/image/BrowserImageProcessor.ts';
 import { ChromeMessageBus } from '../infrastructure/messaging/ChromeMessageBus.ts';
 import { TesseractOCRAdapter } from '../infrastructure/ocr/TesseractOCRAdapter.ts';
+import { PdfLibPDFService } from '../infrastructure/pdf/PdfLibPDFService.ts';
+import { ChromeDownloadAdapter } from '../infrastructure/chrome/downloads/ChromeDownloadAdapter.ts';
 
 import { CreateSession } from '../application/session/CreateSession.ts';
 import { DeleteSession } from '../application/session/DeleteSession.ts';
 import { CaptureScreenshot } from '../application/capture/CaptureScreenshot.ts';
 import { RunOCR } from '../application/ocr/RunOCR.ts';
+import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
+import { DownloadPDF } from '../application/pdf/DownloadPDF.ts';
 import { OCRStatus } from '../domain/ocr/ocr.types.ts';
 
 console.log('[Service Worker] Initializing Snabby service worker...');
@@ -20,6 +25,7 @@ console.log('[Service Worker] Initializing Snabby service worker...');
 const sessionRepo = new IndexedDBSessionRepository();
 const captureRepo = new IndexedDBCaptureRepository();
 const ocrRepo = new IndexedDBOCRRepository();
+const imageRepo = new IndexedDBImageRepository();
 
 // 2. Instantiate Adapters / Services
 const messageBus = new ChromeMessageBus();
@@ -27,11 +33,15 @@ const captureAdapter = new ChromeCaptureAdapter();
 const imageProcessor = new BrowserImageProcessor();
 const persistenceService = new IndexedDBCapturePersistenceService();
 const ocrService = new TesseractOCRAdapter(messageBus);
+const pdfService = new PdfLibPDFService(imageRepo, ocrRepo);
+const downloadService = new ChromeDownloadAdapter();
 
 // 3. Instantiate Use Cases
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
 const runOCR = new RunOCR(ocrService, ocrRepo);
+const generatePDF = new GeneratePDF(sessionRepo, captureRepo, pdfService);
+const downloadPDF = new DownloadPDF(downloadService);
 
 // Decorate runOCR to broadcast events to UI when async OCR completes or fails
 const originalRunOcrExecute = runOCR.execute.bind(runOCR);
@@ -279,6 +289,29 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           };
         }
         case 'EXPORT_PDF': {
+          const sessions = await sessionRepo.findAll();
+          if (sessions.length === 0) {
+            return {
+              success: false,
+              error: {
+                code: 'NO_ACTIVE_SESSION',
+                message: 'No active session found.',
+                operation: 'EXPORT_PDF'
+              }
+            };
+          }
+          const session = sessions[0];
+          
+          const pdfBlob = await generatePDF.execute({
+            sessionId: session.id,
+            skipPendingOcr: message.skipPendingOcr ?? false
+          });
+
+          await downloadPDF.execute({
+            pdfBlob,
+            filename: message.filename
+          });
+
           return { success: true };
         }
         default:
