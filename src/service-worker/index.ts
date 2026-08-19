@@ -266,9 +266,16 @@ function runCropOverlayInPage(): Promise<{ x: number; y: number; width: number; 
 
 
 
+let isCapturing = false;
+
 // Keyboard Shortcut Command Listener
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === 'capture-visible') {
+    if (isCapturing) {
+      console.warn('[Service Worker] Shortcut capture ignored: capture already in progress.');
+      return;
+    }
+    isCapturing = true;
     try {
       console.log('[Service Worker] Keyboard shortcut capture-visible triggered.');
       const sessions = await sessionRepo.findAll();
@@ -323,7 +330,14 @@ chrome.commands.onCommand.addListener(async (command) => {
         count: captures.length
       });
     } catch (err: any) {
-      console.error('[Service Worker] Shortcut capture failed:', err);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+        console.warn('[Service Worker] Shortcut capture ignored due to visible tab capture quota limit.');
+      } else {
+        console.error('[Service Worker] Shortcut capture failed:', err);
+      }
+    } finally {
+      isCapturing = false;
     }
   }
 });
@@ -348,7 +362,8 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             success: true,
             data: {
               session: sessions[0] || null,
-              settings
+              settings,
+              isActivatedGlobally
             }
           };
         }
@@ -388,7 +403,9 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           for (const s of sessions) {
             await deleteSession.execute(s.id);
           }
+          isActivatedGlobally = false;
           broadcastMessage({ type: 'SESSION_UPDATED' });
+          broadcastMessage({ type: 'ACTIVATION_CHANGED', activated: false });
           return { success: true };
         }
         case 'SET_CAPTURE_MODE': {
@@ -479,67 +496,82 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           };
         }
         case 'CAPTURE_REQUEST': {
-          const sessions = await sessionRepo.findAll();
-          if (sessions.length === 0) {
+          if (isCapturing) {
             return {
               success: false,
               error: {
-                code: 'NO_ACTIVE_SESSION',
-                message: 'No active session found.',
+                code: 'CAPTURE_IN_PROGRESS',
+                message: 'A capture is already in progress.',
                 operation: 'CAPTURE_REQUEST'
               }
             };
           }
-          const session = sessions[0];
-          const settings = await getSettings();
-          const captureMode = settings.mode === 'VISIBLE' ? 'FULL_SCREEN' : 'CROP_REGION';
-
-          // For CROP_REGION: inject crop overlay into active tab and await user selection
-          if (captureMode === 'CROP_REGION') {
-            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!activeTab?.id) {
+          isCapturing = true;
+          try {
+            const sessions = await sessionRepo.findAll();
+            if (sessions.length === 0) {
               return {
                 success: false,
-                error: { code: 'NO_ACTIVE_TAB', message: 'No active tab found for crop overlay.', operation: 'CAPTURE_REQUEST' }
+                error: {
+                  code: 'NO_ACTIVE_SESSION',
+                  message: 'No active session found.',
+                  operation: 'CAPTURE_REQUEST'
+                }
               };
             }
-            try {
-              const [injectionResult] = await chrome.scripting.executeScript({
-                target: { tabId: activeTab.id },
-                func: runCropOverlayInPage,
-                world: 'MAIN',
-              });
-              const rect = injectionResult?.result;
-              if (!rect || rect.cancelled || rect.width < 10 || rect.height < 10) {
-                // User cancelled — return success:true with null capture (no error)
-                return { success: true, data: { capture: null, cancelled: true } };
+            const session = sessions[0];
+            const settings = await getSettings();
+            const captureMode = settings.mode === 'VISIBLE' ? 'FULL_SCREEN' : 'CROP_REGION';
+
+            // For CROP_REGION: inject crop overlay into active tab and await user selection
+            if (captureMode === 'CROP_REGION') {
+              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab?.id) {
+                return {
+                  success: false,
+                  error: { code: 'NO_ACTIVE_TAB', message: 'No active tab found for crop overlay.', operation: 'CAPTURE_REQUEST' }
+                };
               }
-              captureAdapter.setCropRect(rect);
-            } catch (err: any) {
-              console.error('[Service Worker] Crop overlay injection failed:', err);
-              return {
-                success: false,
-                error: { code: 'CROP_OVERLAY_FAILED', message: err.message, operation: 'CAPTURE_REQUEST' }
-              };
+              try {
+                const [injectionResult] = await chrome.scripting.executeScript({
+                  target: { tabId: activeTab.id },
+                  func: runCropOverlayInPage,
+                  world: 'MAIN',
+                });
+                const rect = injectionResult?.result;
+                if (!rect || rect.cancelled || rect.width < 10 || rect.height < 10) {
+                  // User cancelled — return success:true with null capture (no error)
+                  return { success: true, data: { capture: null, cancelled: true } };
+                }
+                captureAdapter.setCropRect(rect);
+              } catch (err: any) {
+                console.error('[Service Worker] Crop overlay injection failed:', err);
+                return {
+                  success: false,
+                  error: { code: 'CROP_OVERLAY_FAILED', message: err.message, operation: 'CAPTURE_REQUEST' }
+                };
+              }
             }
+
+            const result = await captureScreenshot.execute({
+              sessionId: session.id,
+              captureMode,
+            });
+
+            const updatedCaptures = await captureRepo.findBySessionId(session.id);
+            broadcastMessage({
+              type: 'CAPTURE_COMPLETE',
+              captureId: result.capture.id,
+              count: updatedCaptures.length
+            });
+
+            return {
+              success: true,
+              data: { capture: result.capture }
+            };
+          } finally {
+            isCapturing = false;
           }
-
-          const result = await captureScreenshot.execute({
-            sessionId: session.id,
-            captureMode,
-          });
-
-          const updatedCaptures = await captureRepo.findBySessionId(session.id);
-          broadcastMessage({
-            type: 'CAPTURE_COMPLETE',
-            captureId: result.capture.id,
-            count: updatedCaptures.length
-          });
-
-          return {
-            success: true,
-            data: { capture: result.capture }
-          };
         }
         case 'EXPORT_PDF': {
           const sessions = await sessionRepo.findAll();
@@ -570,9 +602,11 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           // Only terminate the session AFTER a confirmed successful download
           console.log('[Service Worker] PDF downloaded successfully. Ending session:', session.id);
           await deleteSession.execute(session.id);
+          isActivatedGlobally = false;
 
           // Broadcast session state change so React UI refreshes to NewSessionView
           broadcastMessage({ type: 'SESSION_UPDATED' });
+          broadcastMessage({ type: 'ACTIVATION_CHANGED', activated: false });
 
           return { success: true };
         }
@@ -587,7 +621,12 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           };
       }
     } catch (err: any) {
-      console.error('[Service Worker] Message handling failure:', err);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+        console.warn('[Service Worker] Capture request ignored due to visible tab capture quota limit.');
+      } else {
+        console.error('[Service Worker] Message handling failure:', err);
+      }
       return {
         success: false,
         error: {
@@ -608,6 +647,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
 
 // Active tab activation state tracking (tabId -> boolean)
 const activatedTabs = new Map<number, boolean>();
+let isActivatedGlobally = false;
 
 function isSystemPage(url?: string): boolean {
   if (!url) return false;
@@ -626,38 +666,31 @@ chrome.action.onClicked.addListener(async (tab) => {
 
   if (tab.url && isSystemPage(tab.url)) {
     console.warn('[Service Worker] Cannot activate Snabby on Chrome system or Web Store pages:', tab.url);
-    activatedTabs.set(tab.id, false);
     return;
   }
 
-  const currentActive = activatedTabs.get(tab.id) || false;
-  const nextActive = !currentActive;
-  activatedTabs.set(tab.id, nextActive);
+  isActivatedGlobally = !isActivatedGlobally;
 
-  if (nextActive) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['assets/popup.js']
-      });
-    } catch (err: any) {
-      activatedTabs.set(tab.id, false);
-      console.warn('[Service Worker] Cannot inject popup.js into this page:', err.message || String(err));
-      return;
+  if (isActivatedGlobally) {
+    const currentTabInjected = activatedTabs.get(tab.id) || false;
+    if (!currentTabInjected) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['assets/popup.js']
+        });
+        activatedTabs.set(tab.id, true);
+      } catch (err: any) {
+        console.warn('[Service Worker] Cannot inject popup.js into this page:', err.message || String(err));
+      }
     }
   }
 
-  // Send activation state update to tab
-  setTimeout(async () => {
-    try {
-      await chrome.tabs.sendMessage(tab.id!, {
-        type: 'ACTIVATION_CHANGED',
-        activated: nextActive
-      });
-    } catch (err) {
-      console.warn('[Service Worker] Failed to send ACTIVATION_CHANGED message:', err);
-    }
-  }, 100);
+  // Broadcast activation state update to ALL tabs using broadcastMessage
+  broadcastMessage({
+    type: 'ACTIVATION_CHANGED',
+    activated: isActivatedGlobally
+  });
 });
 
 // Extension Life Cycle Events

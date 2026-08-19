@@ -8,7 +8,6 @@ import { ActiveSessionView } from '../features/session/components/ActiveSessionV
 import { LightboxPreview } from '../features/capture/components/LightboxPreview.tsx';
 import { FloatingMascot } from '../features/capture/components/FloatingMascot.tsx';
 import { useMessageBus } from './providers/MessageBusContext.tsx';
-import './App.css';
 
 // ═══════════════════════════════════════════════
 //  HEADER MASCOT (SVG with blink + pupil tracking)
@@ -146,6 +145,7 @@ export const App: React.FC = () => {
     confirmOverwrite,
     endSession,
     setCaptureMode,
+    isActivatedGlobally,
   } = useSession();
 
   const {
@@ -171,7 +171,14 @@ export const App: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const isActivated = !!session || manualActivated;
+  const isActivated = manualActivated;
+
+  // Synchronize manual activation state from global active state
+  useEffect(() => {
+    if (isActivatedGlobally !== undefined) {
+      setManualActivated(isActivatedGlobally);
+    }
+  }, [isActivatedGlobally]);
 
   // Reset manual activation when session ends (becomes null) so Snabby closes cleanly on all tabs
   useEffect(() => {
@@ -179,6 +186,13 @@ export const App: React.FC = () => {
       setManualActivated(false);
     }
   }, [session]);
+
+  // Reset selected capture (lightbox) when panel is closed
+  useEffect(() => {
+    if (!panelOpen) {
+      setSelectedCapture(null);
+    }
+  }, [panelOpen]);
 
 
   // Panel ref for display/opacity control matching original openPanel/closePanel

@@ -10,17 +10,19 @@ export const useSession = () => {
   const messageBus = useMessageBus();
   const [session, setSession] = useState<Session | null>(null);
   const [settings, setSettings] = useState<Settings>({ mode: 'VISIBLE' });
+  const [isActivatedGlobally, setIsActivatedGlobally] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchSession = async () => {
     try {
       setLoading(true);
-      const res = await messageBus.request<{ success: boolean; data: { session: Session | null; settings: Settings } }>({
+      const res = await messageBus.request<{ success: boolean; data: { session: Session | null; settings: Settings; isActivatedGlobally: boolean } }>({
         type: 'GET_SESSION',
       });
       setSession(res.data.session);
       setSettings(res.data.settings);
+      setIsActivatedGlobally(res.data.isActivatedGlobally ?? false);
       setError(null);
     } catch (err: any) {
       setError(err.message || String(err));
@@ -106,6 +108,7 @@ export const useSession = () => {
   return {
     session,
     settings,
+    isActivatedGlobally,
     loading,
     error,
     startSession,
