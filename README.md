@@ -5,7 +5,7 @@
 ---
 # See How it works
 
-<video controls src="Screen Recording 2026-08-20 010555.mp4" title="Title"></video>
+<video controls src="demo.mp4" title="Title"></video>
 
 ## Key Features
 
