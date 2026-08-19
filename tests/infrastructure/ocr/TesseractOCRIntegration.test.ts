@@ -112,7 +112,7 @@ async function runTests() {
     await adapter.process(corruptImage);
     console.error('✗ Test 2: E2E OCR Error propagation - FAIL (Did not throw)');
     process.exit(1);
-  } catch (err: unknown) {
+  } catch (err: any) {
     assert(err instanceof Error, 'Throws standard Error');
     assert(err.message.includes('OCR service failure'), 'Error message is mapped and wrapped cleanly');
     console.log('✓ Test 2: E2E OCR Error propagation and wrapping - PASS');

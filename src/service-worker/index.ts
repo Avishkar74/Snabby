@@ -609,8 +609,27 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
 // Active tab activation state tracking (tabId -> boolean)
 const activatedTabs = new Map<number, boolean>();
 
+function isSystemPage(url?: string): boolean {
+  if (!url) return false;
+  const cleanUrl = url.toLowerCase();
+  return (
+    cleanUrl.startsWith('chrome://') ||
+    cleanUrl.startsWith('chrome-extension://') ||
+    cleanUrl.startsWith('devtools://') ||
+    cleanUrl.startsWith('https://chrome.google.com/webstore') ||
+    cleanUrl.startsWith('https://chromewebstore.google.com')
+  );
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
+
+  if (tab.url && isSystemPage(tab.url)) {
+    console.warn('[Service Worker] Cannot activate Snabby on Chrome system or Web Store pages:', tab.url);
+    activatedTabs.set(tab.id, false);
+    return;
+  }
+
   const currentActive = activatedTabs.get(tab.id) || false;
   const nextActive = !currentActive;
   activatedTabs.set(tab.id, nextActive);
@@ -621,8 +640,10 @@ chrome.action.onClicked.addListener(async (tab) => {
         target: { tabId: tab.id },
         files: ['assets/popup.js']
       });
-    } catch (err) {
-      console.error('[Service Worker] Failed to inject popup.js:', err);
+    } catch (err: any) {
+      activatedTabs.set(tab.id, false);
+      console.warn('[Service Worker] Cannot inject popup.js into this page:', err.message || String(err));
+      return;
     }
   }
 
