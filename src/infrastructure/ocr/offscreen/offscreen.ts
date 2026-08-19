@@ -1,18 +1,26 @@
-import { TesseractWorker } from '../TesseractWorker.ts';
+﻿import { TesseractWorker } from '../TesseractWorker.ts';
 
-console.log('[Offscreen] Offscreen document script loaded.');
+console.log('[Offscreen] Offscreen document script loaded and initialized.');
 
 const tesseractWorker = new TesseractWorker();
 
 // Message handler for service worker requests
 chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
-  console.log('[Offscreen] Received message:', message, 'from:', sender.id);
-  
+  console.log('[Offscreen] Received message:', {
+    action: message?.action,
+    target: message?.target,
+    hasDataUrl: !!message?.dataUrl,
+    dataUrlLength: message?.dataUrl?.length,
+    senderId: sender?.id
+  });
+
   if (!message || message.target !== 'offscreen') {
+    console.log('[Offscreen] Ignoring message — not targeted at offscreen.');
     return false;
   }
 
   if (message.action === 'ping') {
+    console.log('[Offscreen] Responding to ping.');
     sendResponse({ success: true, status: 'ready' });
     return false;
   }
@@ -20,6 +28,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
   if (message.action === 'ocr') {
     const { dataUrl } = message;
     if (!dataUrl) {
+      console.error('[Offscreen] OCR request missing dataUrl!');
       sendResponse({
         success: false,
         error: 'Missing dataUrl parameter for OCR',
@@ -32,14 +41,19 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
       return false;
     }
 
-    // Process image dimensions and OCR asynchronously
+    console.log(`[Offscreen] Starting OCR on dataUrl (length: ${dataUrl.length})...`);
+
     (async () => {
       try {
+        const t0 = Date.now();
         // Load image to get actual dimensions
         const dimensions = await getImageDimensions(dataUrl);
-        
-        // Run OCR
+        console.log(`[Offscreen] Image dimensions: ${dimensions.width}x${dimensions.height}`);
+
+        // Run Tesseract OCR
+        console.log('[Offscreen] Calling TesseractWorker.recognize()...');
         const ocrResult = await tesseractWorker.recognize(dataUrl);
+        console.log(`[Offscreen] OCR done in ${Date.now() - t0}ms. Words: ${ocrResult.words?.length}, Text: ${ocrResult.text?.slice(0, 80)}`);
 
         sendResponse({
           success: true,
@@ -51,6 +65,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
         });
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error('[Offscreen] OCR ERROR:', errorMsg);
         sendResponse({
           success: false,
           error: errorMsg,
@@ -66,12 +81,12 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
+  console.warn('[Offscreen] Unrecognized action:', message.action);
   return false;
 });
 
 function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
-    // In Node test environment, Image is not defined, so fallback to safe mock
     if (typeof Image === 'undefined') {
       resolve({ width: 1920, height: 1080 });
       return;

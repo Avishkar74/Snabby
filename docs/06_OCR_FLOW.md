@@ -125,45 +125,54 @@ AcquiredScreenshot
    ↓
 Image Processing
    ↓
-Persist Image + Capture
-   ↓
-OCR
-   ↓
-Persist OCR Result
-   ↓
-React UI
-   ↓
-PDF Generation
-```
-
-OCR therefore sits between image preparation and document generation.
-
----
+Persi---
 
 # 5. High-Level OCR Flow
 
 ```text
-┌──────────────────────────────┐
-│       OCR-ready Image        │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│         OCR Request          │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│          OCR Service         │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│        Service Worker        │
-└──────────────┬───────────────┘
-               │
-               │ message
-               ▼
-┌──────────────────────────────┐
-│       Offscreen Document      │
-└──────────────┬───────────────┘
+┌────────────────────────────────────────────────────────┐
+│     CaptureScreenshot (Applies Initial Persistence)    │
+└───────────────────────────┬────────────────────────────┘
+                            ↓
+┌────────────────────────────────────────────────────────┐
+│                        RunOCR                          │
+│  - Transitions Capture.status to PROCESSING            │
+│  - Persists Capture via CaptureRepository              │
+└───────────────────────────┬────────────────────────────┘
+                            ↓
+┌────────────────────────────────────────────────────────┐
+│        TesseractOCRAdapter (Infrastructure)            │
+│  - Converts Blob -> DataURL via FileReader (0-stack)   │
+│  - Calls ChromeMessageBus.request({ target: 'offscreen'})
+└───────────────────────────┬────────────────────────────┘
+                            ↓
+┌────────────────────────────────────────────────────────┐
+│       Service Worker (ensureOffscreenDocument)         │
+│  - Instantiates offscreen.html dynamically if needed   │
+└───────────────────────────┬────────────────────────────┘
+                            ↓
+┌────────────────────────────────────────────────────────┐
+│        Offscreen Document (offscreen.html / ts)        │
+│  - Evaluates CSP: 'wasm-unsafe-eval'                   │
+│  - Invokes TesseractWorker.recognize(dataUrl)          │
+└───────────────────────────┬────────────────────────────┘
+                            ↓
+┌────────────────────────────────────────────────────────┐
+│        TesseractWorker (Local Offline Assets)          │
+│  - workerPath: chrome.runtime.getURL('assets/tesseract/worker.min.js')
+│  - corePath: chrome.runtime.getURL('assets/tesseract') │
+│  - langPath: chrome.runtime.getURL('assets/tesseract') │
+│  - workerBlobURL: false                                │
+└───────────────────────────┬────────────────────────────┘
+                            ↓
+┌────────────────────────────────────────────────────────┐
+│          IndexedDB Multi-Store Persistence             │
+│  - OCRResult saved to 'ocrResults' store in OCRRepo     │
+│  - Capture.status updated to COMPLETED / FAILED in     │
+│    'captures' store in CaptureRepo                     │
+│  - Service Worker broadcasts OCR_COMPLETED / OCR_FAILED│
+└────────────────────────────────────────────────────────┘
+```��──┘
                ↓
 ┌──────────────────────────────┐
 │          Tesseract.js         │
@@ -2126,16 +2135,8 @@ These will be resolved after the storage flow, data schemas, and LLD are designe
 
 # 71. Final OCR Flow
 
-The complete conceptual flow is:
-
 ```text
-                       CAPTURE
-                          │
-                          ▼
-                   Persisted Image
-                          │
-                          ▼
-                 Image Processing
+                   Image Processing
                           │
                           ▼
                   OCR-ready Image
@@ -2144,54 +2145,61 @@ The complete conceptual flow is:
                      OCR Request
                           │
                           ▼
-                  ┌───────────────┐
-                  │ Service Worker│
-                  └───────┬───────┘
-                          │
-                          │ Message
-                          ▼
-                  ┌───────────────┐
-                  │   Offscreen   │
-                  │   Document    │
-                  └───────┬───────┘
-                          │
-                          ▼
+                  ┌──────────────┐
+                  │Service Worker│
+                  └──────┬───────┘
+                         │
+                         │ Message
+                         ▼
+                  ┌──────────────┐
+                  │  Offscreen   │
+                  │  Document    │
+                  └──────┬───────┘
+                         │
+                         ▼
                     Tesseract.js
-                          │
-                          ▼
+                         │
+                         ▼
                   Tesseract Worker
-                          │
-                          ▼
+                         │
+                         ▼
                     Recognition
-                          │
-                          ▼
+                         │
+                         ▼
                  Raw OCR Result
-                          │
-                          ▼
+                         │
+                         ▼
                  Result Normalizer
-                          │
-                          ▼
+                         │
+                         ▼
                   Snabby OCR Result
-                          │
-                          ▼
+                         │
+                         ▼
                      Validation
-                          │
-                          ▼
+                         │
+                         ▼
                   OCR Repository
-                          │
-                          ▼
+                         │
+                         ▼
                       IndexedDB
-                          │
-             ┌────────────┴────────────┐
-             ▼                         ▼
+                         │
+             ┌───────────┴───────────┐
+             ▼                       ▼
           React UI                PDF Generator
 ```
 
-The key principle is:
+### Component Source Map
 
-> **Snabby uses Tesseract as an implementation detail to transform a normalized screenshot into a stable, persistent OCR representation containing text, confidence, and positional information.**
+| Layer | File Path | Responsibility | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Application Use Case** | `src/application/ocr/RunOCR.ts` | Orchestrates OCR execution, persists `OCRResult` in `OCRRepository`, updates `Capture.status` to `COMPLETED` or `FAILED`. | `OCRService`, `OCRRepository`, `CaptureRepository` |
+| **Application Use Case** | `src/application/ocr/GetOCRResult.ts` | Retrieves `OCRResult` by `captureId`. | `OCRRepository` |
+| **Application Interface** | `src/application/interfaces/services/OCRService.ts` | Service boundary contract for OCR execution. | `ImageAsset`, `OCRResult` |
+| **Infrastructure Adapter** | `src/infrastructure/ocr/TesseractOCRAdapter.ts` | Converts image Blob to data URL via `FileReader`, sends OCR request to Offscreen Document over `MessageBus`, normalizes word coordinates. | `MessageBus`, `FileReader` |
+| **Infrastructure Offscreen Host** | `src/infrastructure/ocr/offscreen/offscreen.ts` | In-document listener for offscreen messages, measures image dimensions, delegates to `TesseractWorker`. | `TesseractWorker` |
+| **Infrastructure Worker / WASM** | `src/infrastructure/ocr/TesseractWorker.ts` | Initializes local offline Tesseract worker (`assets/tesseract/*`), runs WASM recognition, extracts word boxes & confidences. | `tesseract.js` |
+| **Infrastructure Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts` | Implements `OCRRepository` interface on `ocrResults` IndexedDB store. | `DBService`, `OCRMapper` |
 
-The next document should be **`07_STORAGE_INDEXEDDB_FLOW.md`**. This is particularly important because we have now established the main persistent entities that need to work together: **sessions, captures, image assets, and OCR results**. The storage design should determine how those entities are represented, related, persisted, updated, deleted, and recovered using IndexedDB.
+---
 
-
-one correction , we are not going to show any ocr completion percentage or related thing in the ui , just if the user hits the download button before ocr has completed then user will get a option to wait till ocr get completed or download instantly without ocr .
+> **Core principle:** Snabby uses Tesseract.js inside a dedicated Chrome Offscreen Document as an isolated infrastructure service to transform captured screenshots into persistent, word-level bounding-box OCR representations without blocking or compromising extension Service Worker lifecycles.

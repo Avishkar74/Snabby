@@ -176,10 +176,13 @@ async function runTests() {
   // ==========================================
   {
     const ocrService = new MockSuccessOCRService();
-    const runOCR = new RunOCR(ocrService as any, ocrRepo);
+    const runOCR = new RunOCR(ocrService as any, ocrRepo, captureRepo);
     
     // Clear ocrResults mock store
     mockIndexedDBData.get('ocrResults')?.clear();
+    mockIndexedDBData.get('captures')?.clear();
+
+    await captureRepo.save(mockCapture);
 
     const ocrResult = await runOCR.execute({ capture: mockCapture, image: mockImage });
 
@@ -192,6 +195,10 @@ async function runTests() {
     assert(persisted !== undefined, 'OCRResult was persisted to database');
     assert(persisted.fullText === 'Hello World', 'Persisted result has correct text');
 
+    // Verify Capture.status updated to COMPLETED in captureRepo
+    const updatedCapture = await captureRepo.findById(mockCapture.id);
+    assert(updatedCapture !== null && updatedCapture.status === 'COMPLETED', 'Capture.status updated to COMPLETED');
+
     console.log('✓ Test 1: Successful OCR orchestration - PASS');
   }
 
@@ -200,9 +207,11 @@ async function runTests() {
   // ==========================================
   {
     const ocrService = new MockFailureOCRService();
-    const runOCR = new RunOCR(ocrService as any, ocrRepo);
+    const runOCR = new RunOCR(ocrService as any, ocrRepo, captureRepo);
 
     mockIndexedDBData.get('ocrResults')?.clear();
+    mockIndexedDBData.get('captures')?.clear();
+    await captureRepo.save(mockCapture);
 
     try {
       await runOCR.execute({ capture: mockCapture, image: mockImage });
@@ -211,9 +220,14 @@ async function runTests() {
     } catch (err: any) {
       assert(err instanceof Error && err.message.includes('Mock OCR'), 'Propagates standard OCR error');
       
-      // Verify repository save was NOT called
-      const persisted = mockIndexedDBData.get('ocrResults')?.get(mockCapture.id);
-      assert(persisted === undefined, 'OCRRepository.save was NOT called on failure');
+      // Verify fallback failed OCRResult saved
+      const persistedOcr = mockIndexedDBData.get('ocrResults')?.get(mockCapture.id);
+      assert(persistedOcr !== undefined && persistedOcr.status === 'FAILED', 'Failed OCRResult saved on error');
+
+      // Verify Capture.status updated to FAILED in captureRepo
+      const updatedCapture = await captureRepo.findById(mockCapture.id);
+      assert(updatedCapture !== null && updatedCapture.status === 'FAILED', 'Capture.status updated to FAILED');
+
       console.log('✓ Test 2: OCR failure clean handling - PASS');
     }
   }
@@ -256,7 +270,7 @@ async function runTests() {
     };
 
     const failingOcrService = new MockFailureOCRService();
-    const runOCR = new RunOCR(failingOcrService as any, ocrRepo);
+    const runOCR = new RunOCR(failingOcrService as any, ocrRepo, captureRepo);
 
     const captureUseCase = new CaptureScreenshot(
       mockCaptureAdapter as any,
@@ -282,10 +296,11 @@ async function runTests() {
     const captureInDb = mockIndexedDBData.get('captures')?.get(result.capture.id);
     assert(captureInDb !== undefined, 'Capture exists in database');
     assert(mockIndexedDBData.get('images')?.get(captureInDb.imageId) !== undefined, 'Image exists in database');
+    assert(captureInDb.processingStatus === 'FAILED', 'Capture.status updated to FAILED when OCR failed');
 
-    // Verify OCRResult does NOT exist (meaning failed/not persisted)
+    // Verify failed OCRResult is persisted with status FAILED
     const ocrInDb = mockIndexedDBData.get('ocrResults')?.get(result.capture.id);
-    assert(ocrInDb === undefined, 'No OCRResult persisted in database for failed run');
+    assert(ocrInDb !== undefined && ocrInDb.status === 'FAILED', 'Failed OCRResult persisted in database for failed run');
 
     console.log('✓ Test 4: Capture and Image survive OCR failure - PASS');
   }

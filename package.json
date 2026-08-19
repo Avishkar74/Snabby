@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "start": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && node build.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "placeholder": "echo 'TODO: implement placeholder script'"

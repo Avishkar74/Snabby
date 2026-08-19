@@ -73,7 +73,8 @@ async function runTests() {
     data: validBlob,
     width: 1,
     height: 1,
-    mimeType: 'image/png'
+    mimeType: 'image/png',
+    createdAt: 0
   };
 
   // Test 1: Successful OCR integration flow
@@ -104,7 +105,8 @@ async function runTests() {
       data: corruptBlob,
       width: 1,
       height: 1,
-      mimeType: 'image/png'
+      mimeType: 'image/png',
+      createdAt: 0
     };
 
     await adapter.process(corruptImage);

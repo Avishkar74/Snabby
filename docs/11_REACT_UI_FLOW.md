@@ -848,49 +848,56 @@ They should not be mixed into one giant state object.
 
 # 30. V1 UI Scope
 
-The following are explicitly part of the current v1:
+The following are explicitly implemented and supported in current v1:
 
 ```text
 ✓ New session
 ✓ Session naming
-✓ Full-screen capture
-✓ Crop-region capture
-✓ Multiple captures
-✓ Capture previews
+✓ Full-screen / visible viewport capture
+✓ Crop-region capture (interactive drag overlay + DPR coordinate scaling)
+✓ Single active session per browser profile
+✓ Multiple captures with order tracking
+✓ Capture previews & thumbnail grid
+✓ Lightbox preview with keyboard navigation (Arrows / Esc)
 ✓ Capture deletion
-✓ Session deletion
-✓ PDF generation
-✓ PDF download
-✓ OCR processing
-✓ OCR completion/failure and download-decision feedback
+✓ Session deletion / termination
+✓ PDF generation (pdf-lib, 1:1 image sizing with 10pt border)
+✓ PDF download (Chrome Downloads API)
+✓ Session auto-termination upon confirmed download
+✓ OCR processing (Tesseract.js in Offscreen Document)
+✓ OCR completion/failure real-time badge updates
+✓ OCR pending decision modal (Export now vs Wait for OCR vs Cancel)
+✓ Shadow DOM CSS isolation (#wsn-root)
+✓ Floating draggable mascot button
+✓ Right-side sliding panel
 ```
 
-Not part of v1:
+Not part of v1 (displayed options disabled or omitted):
 
 ```text
-✗ Phone upload
-✗ Storage-limit indicator
+✗ Phone upload via QR
+✗ Storage-limit memory bar polling
 ```
 
-Phone upload can be added later through a new capture-source implementation without changing the fundamental session/capture architecture.
+---
+
+# 31. Component & Hook Architecture Map
+
+| Component / Hook | File Path | Responsibility | Boundary / Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Mounting Root** | `src/main.tsx` | Injects `#wsn-root`, creates open Shadow DOM, injects `App.css`, creates root React container, initializes `ChromeMessageBus`. | DOM, React, `ChromeMessageBus` |
+| **Main App Container** | `src/app/App.tsx` | Hosts mascot SVG logo with eye-tracking & blink animation, coordinates active/new session view switching, lightbox, and toast container. | `useSession`, `useCaptures`, `usePdfExporter`, `MessageBusContext` |
+| **Message Context** | `src/app/providers/MessageBusContext.tsx` | Supplies `MessageBus` implementation via React context. | React Context, `MessageBus` |
+| **Session Hook** | `src/features/session/hooks/useSession.ts` | Dispatches `START_SESSION`, `CONFIRM_OVERWRITE`, `END_SESSION`, `SET_CAPTURE_MODE`, queries `GET_SESSION`, listens for `SESSION_UPDATED`. | `useMessageBus` |
+| **Captures Hook** | `src/features/capture/hooks/useCaptures.ts` | Queries `GET_ALL_THUMBNAILS`, manages thumbnail list, sends `DELETE_CAPTURE`, listens for `CAPTURE_COMPLETE`, `OCR_COMPLETED`, `OCR_FAILED`. | `useMessageBus` |
+| **PDF Exporter Hook** | `src/features/pdf/hooks/usePdfExporter.ts` | Dispatches `CHECK_OCR_STATUS` and `EXPORT_PDF` (with `skipPendingOcr` flag), manages export state (`idle`, `generating`, `completed`, `failed`). | `useMessageBus` |
+| **Floating Mascot** | `src/features/capture/components/FloatingMascot.tsx` | Draggable mascot face widget fixed to viewport, toggles side panel on click. | React, DOM mouse events |
+| **Active Session View** | `src/features/session/components/ActiveSessionView.tsx` | Renders session header, capture count, mode toggle, scrollable thumbnail grid, and bottom "Download PDF" button with OCR decision modal. | `CaptureCard`, `DecisionModal` |
+| **New Session View** | `src/features/session/components/NewSessionView.tsx` | Renders session name input, mode selection cards (Full Screen vs Crop Region), and "Start Capture Session" button. | React |
+| **Capture Card** | `src/features/capture/components/CaptureCard.tsx` | Thumbnail card with order badge, OCR status pill (`PROCESSING`, `COMPLETED`, `FAILED`), delete button, and lightbox click handler. | React |
+| **Lightbox Preview** | `src/features/capture/components/LightboxPreview.tsx` | Full-screen image lightbox modal with backdrop dismiss and keyboard navigation. | React, DOM keyboard events |
 
 ---
 
-# 31. Open Questions
+> **Core principle:** React is the presentation layer of Snabby. It owns UI state and user interaction, while application use cases own behavior and IndexedDB/Chrome/PDF/Tesseract implementations remain behind explicit interfaces. The finalized UI preserves the original Snabby visual identity inside an isolated Shadow DOM.
 
-Only implementation-level decisions remain:
-
-1. Exact React component hierarchy.
-2. Exact global/application state strategy.
-3. Which state should use Context vs local state.
-4. Exact custom hooks.
-5. Efficient capture preview loading for large image blobs.
-6. Exact loading/error components.
-7. Exact UI-to-use-case interfaces.
-8. Optional non-blocking PDF generation visual treatment (without OCR progress bars).
-
-These will be resolved during the LLD.
-
----
-
-> **Core principle:** React is the presentation layer of Snabby. It owns UI state and user interaction, while application use cases own behavior and IndexedDB/Chrome/PDF/Tesseract implementations remain behind explicit interfaces. The finalized UI is implemented as-is; architecture should adapt to the UI, not redesign it.

@@ -1292,16 +1292,15 @@ The complete conceptual flow is:
           Validate Final Image
                  │
                  ▼
-            Processed Image
-                 │
-          ┌──────┴──────┐
-          │             │
-          ▼             ▼
-         OCR           PDF
-```
+### Component Source Map
 
-The key principle is:
+| Layer | File Path | Responsibility | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Domain Models** | `src/domain/image/image.types.ts` | Type contracts for `ImageAsset`, `ImageDimensions`, and `ProcessedImage`. | None |
+| **Application Interface** | `src/application/interfaces/services/ImageProcessor.ts` | Interface contract for image validation and dimension extraction. | `ImageAsset` |
+| **Infrastructure Adapter** | `src/infrastructure/image/BrowserImageProcessor.ts` | Implements `ImageProcessor` using `createImageBitmap` for Service Worker execution. | `createImageBitmap` |
+
+---
 
 > **Image processing establishes the canonical image representation and coordinate system that downstream OCR and PDF generation can safely rely on.**
 
-The next document should be **`06_OCR_FLOW.md`**, where we go substantially deeper into the existing Tesseract.js architecture: the OCR request, service-worker → offscreen communication, Tesseract worker, recognition, word-level bounding boxes, confidence values, result normalization, persistence, progress, failure/retry, and the exact boundary between raw Tesseract output and Snabby's internal OCR model.

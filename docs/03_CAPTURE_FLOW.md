@@ -1208,18 +1208,9 @@ The following decisions are now finalized:
 10. **FULL_SCREEN Viewport**: Maps directly to the visible viewport of the active tab (not the entire scrollable webpage).
 11. **Image Representation**: Data URL string from Chrome API converted directly into a binary `Blob` inside `ChromeCaptureAdapter`.
 
-## 38.2 Open Questions for Later Design
-
-The following capture-specific questions remain open:
+## 38.2 Open Questions and Implementation Resolution
 
 1. **Retry Policy**: Recovery behavior for failed API screenshot attempts.
-2. **Concurrent Requests**: Locking mechanism for rapid overlapping capture attempts.
-3. **Shortcut Presses**: Handling rapid repeated shortcut keystrokes.
-4. **Restricted Pages**: Reporting and displaying errors on pages where extensions are blocked (e.g. `chrome://` settings).
-5. **Capture Progress Communication**: How start, intermediate state, and finish capture events are piped to the React UI.
-6. **Future CROP_REGION implementation**: Detailed canvas selection cropping mechanics.
-
----
 
 # 39. Final Capture Flow
 

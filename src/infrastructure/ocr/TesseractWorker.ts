@@ -16,8 +16,27 @@ export class TesseractWorker {
     this.initializingPromise = (async () => {
       try {
         console.log('[TesseractWorker] Initializing Tesseract worker...');
+
+        const isExtension = typeof chrome !== 'undefined' && chrome.runtime?.getURL;
+
+        const options: Record<string, any> = {
+          cacheMethod: 'none',
+          gzip: false,
+          workerBlobURL: false,
+        };
+
+        if (isExtension) {
+          options.workerPath = chrome.runtime.getURL('assets/tesseract/worker.min.js');
+          options.corePath = chrome.runtime.getURL('assets/tesseract');
+          options.langPath = chrome.runtime.getURL('assets/tesseract');
+        } else {
+          // Node / unit test environment: point langPath to local folder where eng.traineddata exists
+          options.langPath = './';
+        }
+
+        console.log('[TesseractWorker] Creating worker with options:', options);
         // Create worker for English language
-        const worker = await createWorker('eng');
+        const worker = await createWorker('eng', 1, options);
         this.worker = worker;
         this.initializingPromise = null;
         console.log('[TesseractWorker] Tesseract worker initialized successfully.');

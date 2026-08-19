@@ -2269,4 +2269,19 @@ At this point, the architecture has established four major persistent concepts:
 
 These entities map directly to the finalized database schemas implemented in `DatabaseManager.ts` and their corresponding application-facing interfaces: `SessionRepository`, `CaptureRepository`, `ImageRepository`, and `OCRRepository`.
 
-The next subsystem is **`08_PDF_GENERATION_FLOW.md`**, because PDF generation is the other major consumer of the stored image and OCR data. It defines how a session is transformed into an ordered PDF, including screenshot pages, OCR text layers, coordinate conversion, scaling, page dimensions, and PDF finalization.
+### Component Source Map
+
+| Layer | File Path | Responsibility | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Database Core** | `src/infrastructure/indexeddb/DBService.ts`, `DatabaseManager.ts` | Opens and manages `snabby-db` connection (v1 schema) across stores `sessions`, `captures`, `images`, `ocrResults`. | `idb` / native IndexedDB |
+| **Atomic Persistence** | `src/infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts` | Multi-store atomic transaction across `['captures', 'images']` ensuring capture and image asset are never orphaned. | `DBService`, `CaptureMapper`, `ImageMapper` |
+| **Session Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts` | Implements `SessionRepository` interface. | `DBService`, `SessionMapper` |
+| **Capture Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBCaptureRepository.ts` | Implements `CaptureRepository` interface. | `DBService`, `CaptureMapper` |
+| **Image Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBImageRepository.ts` | Implements `ImageRepository` interface. | `DBService`, `ImageMapper` |
+| **OCR Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts` | Implements `OCRRepository` interface. | `DBService`, `OCRMapper` |
+| **Entity Mappers** | `src/infrastructure/indexeddb/mappers/*.mapper.ts` | Converts between domain entities and IndexedDB plain record schemas. | Domain Models |
+
+---
+
+> **IndexedDB is the durable backbone of Snabby v1: sessions, captures, screenshot data, and OCR results survive independently of React and extension-runtime lifecycles, while repositories isolate the rest of the application from IndexedDB's implementation details.**
+

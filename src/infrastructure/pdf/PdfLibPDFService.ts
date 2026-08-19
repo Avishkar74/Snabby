@@ -46,31 +46,20 @@ export class PdfLibPDFService implements PDFService {
 
         const { width: imageWidth, height: imageHeight } = embeddedImage;
 
-        // 3. Determine dynamic page size orientation
-        let pageWidth: number;
-        let pageHeight: number;
-        if (imageWidth >= imageHeight) {
-          pageWidth = 842; // A4 Landscape width
-          pageHeight = 595; // A4 Landscape height
-        } else {
-          pageWidth = 595; // A4 Portrait width
-          pageHeight = 842; // A4 Portrait height
-        }
+        // Add a 10 points white border around the image
+        const margin = 10;
+        const pageWidth = imageWidth + margin * 2;
+        const pageHeight = imageHeight + margin * 2;
 
         const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-        // 4. Calculate Contain-Fit scale and centering offset
-        const scaleX = pageWidth / imageWidth;
-        const scaleY = pageHeight / imageHeight;
-        const scale = Math.min(scaleX, scaleY);
+        const scale = 1.0;
+        const renderedWidth = imageWidth;
+        const renderedHeight = imageHeight;
+        const imgLeft = margin;
+        const imgBottom = margin;
 
-        const renderedWidth = imageWidth * scale;
-        const renderedHeight = imageHeight * scale;
-
-        const imgLeft = (pageWidth - renderedWidth) / 2;
-        const imgBottom = (pageHeight - renderedHeight) / 2;
-
-        // 5. Draw the screenshot image
+        // 5. Draw the screenshot image (centered with a white margin)
         page.drawImage(embeddedImage, {
           x: imgLeft,
           y: imgBottom,

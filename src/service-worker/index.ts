@@ -39,14 +39,68 @@ const downloadService = new ChromeDownloadAdapter();
 // 3. Instantiate Use Cases
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
-const runOCR = new RunOCR(ocrService, ocrRepo);
-const generatePDF = new GeneratePDF(sessionRepo, captureRepo, pdfService);
+const runOCR = new RunOCR(ocrService, ocrRepo, captureRepo);
+const generatePDF = new GeneratePDF(sessionRepo, captureRepo, ocrRepo, pdfService);
 const downloadPDF = new DownloadPDF(downloadService);
+
+let creatingOffscreenPromise: Promise<void> | null = null;
+
+async function ensureOffscreenDocument(): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.offscreen) {
+    return;
+  }
+
+  const offscreenUrl = chrome.runtime.getURL('src/infrastructure/ocr/offscreen/offscreen.html');
+
+  try {
+    if (chrome.runtime.getContexts) {
+      const existingContexts = await chrome.runtime.getContexts({
+        contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+        documentUrls: [offscreenUrl]
+      });
+      if (existingContexts.length > 0) {
+        return;
+      }
+    }
+  } catch (e) {
+    console.debug('[Service Worker] chrome.runtime.getContexts check:', e);
+  }
+
+  if (creatingOffscreenPromise) {
+    await creatingOffscreenPromise;
+    return;
+  }
+
+  creatingOffscreenPromise = (async () => {
+    try {
+      console.log('[Service Worker] Creating offscreen document for OCR...');
+      await chrome.offscreen.createDocument({
+        url: 'src/infrastructure/ocr/offscreen/offscreen.html',
+        reasons: ['WORKERS' as any],
+        justification: 'Run Tesseract.js OCR text recognition on captured screenshots',
+      });
+      console.log('[Service Worker] Offscreen document created successfully.');
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('Only a single offscreen document may be created')) {
+        console.log('[Service Worker] Offscreen document already exists.');
+        return;
+      }
+      console.error('[Service Worker] Failed to create offscreen document:', err);
+      throw err;
+    } finally {
+      creatingOffscreenPromise = null;
+    }
+  })();
+
+  await creatingOffscreenPromise;
+}
 
 // Decorate runOCR to broadcast events to UI when async OCR completes or fails
 const originalRunOcrExecute = runOCR.execute.bind(runOCR);
 runOCR.execute = async (input) => {
   try {
+    await ensureOffscreenDocument();
     const result = await originalRunOcrExecute(input);
     console.log(`[Service Worker] OCR completed for capture ${input.capture.id}`);
     broadcastMessage({
@@ -93,36 +147,124 @@ async function setSettings(settings: Settings): Promise<void> {
 
 // Broadcast helper
 function broadcastMessage(message: any) {
+  // Broadcast to other extension contexts (e.g. popups, options pages)
   chrome.runtime.sendMessage(message).catch((err) => {
     // Ignore errors when popup is closed
     console.debug('[Service Worker] Broadcast warning (likely no active UI listener):', err);
   });
+
+  // Broadcast to all tabs where the Snabby content script is running
+  chrome.tabs.query({}).then((tabs) => {
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, message).catch(() => {
+          // Ignore tabs that don't have Snabby content script running
+        });
+      }
+    }
+  }).catch((err) => {
+    console.warn('[Service Worker] Failed to query tabs for broadcast:', err);
+  });
 }
 
-// Offscreen Document creation
-async function ensureOffscreenDocument() {
-  try {
-    const hasDocument = await chrome.offscreen.hasDocument();
-    if (hasDocument) {
-      console.log('[Service Worker] Offscreen document already exists.');
+/**
+ * runCropOverlayInPage — injected into the active tab's MAIN world via
+ * chrome.scripting.executeScript. Renders a fullscreen drag-selection overlay.
+ *
+ * Returns a CropRect { x, y, width, height } in screenshot-pixel space
+ * (CSS pixels × devicePixelRatio), or { cancelled: true } if aborted.
+ *
+ * IMPORTANT: This function must be completely self-contained — it cannot
+ * reference anything from the outer service worker scope.
+ */
+function runCropOverlayInPage(): Promise<{ x: number; y: number; width: number; height: number; cancelled?: boolean }> {
+  return new Promise((resolve) => {
+    // Prevent double-injection
+    if (document.getElementById('wsn-crop-overlay')) {
+      resolve({ x: 0, y: 0, width: 0, height: 0, cancelled: true });
       return;
     }
-  } catch {
-    // Fallback
-  }
 
-  console.log('[Service Worker] Creating offscreen document...');
-  try {
-    await chrome.offscreen.createDocument({
-      url: 'src/infrastructure/ocr/offscreen/offscreen.html',
-      reasons: [chrome.offscreen.Reason.DOM_PARSER],
-      justification: 'OCR text recognition'
+    const dpr = window.devicePixelRatio || 1;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'wsn-crop-overlay';
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:2147483646;cursor:crosshair;' +
+      'background:rgba(0,0,0,0.4);user-select:none;';
+
+    const selBox = document.createElement('div');
+    selBox.style.cssText =
+      'position:fixed;border:2px solid #ffffff;background:rgba(255,255,255,0.1);' +
+      'box-shadow:0 0 0 9999px rgba(0,0,0,0.4);display:none;pointer-events:none;';
+
+    const hint = document.createElement('div');
+    hint.textContent = 'Drag to select a region   ·   Esc to cancel';
+    hint.style.cssText =
+      'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);' +
+      'background:rgba(0,0,0,0.75);color:#fff;font:13px/1.4 system-ui,sans-serif;' +
+      'padding:7px 16px;border-radius:8px;pointer-events:none;white-space:nowrap;';
+
+    overlay.appendChild(selBox);
+    overlay.appendChild(hint);
+    document.body.appendChild(overlay);
+
+    let startX = 0, startY = 0, dragging = false;
+
+    const cleanup = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+
+    const cancel = () => {
+      cleanup();
+      resolve({ x: 0, y: 0, width: 0, height: 0, cancelled: true });
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+    };
+
+    overlay.addEventListener('mousedown', (e: MouseEvent) => {
+      e.preventDefault(); e.stopPropagation();
+      dragging = true;
+      startX = e.clientX; startY = e.clientY;
+      selBox.style.display = 'block';
+      selBox.style.left = `${startX}px`; selBox.style.top = `${startY}px`;
+      selBox.style.width = '0'; selBox.style.height = '0';
+      hint.style.display = 'none';
     });
-    console.log('[Service Worker] Offscreen document created successfully.');
-  } catch (error) {
-    console.error('[Service Worker] Failed to create offscreen document:', error);
-  }
+
+    overlay.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!dragging) return;
+      const x = Math.min(e.clientX, startX), y = Math.min(e.clientY, startY);
+      const w = Math.abs(e.clientX - startX), h = Math.abs(e.clientY - startY);
+      selBox.style.left = `${x}px`; selBox.style.top = `${y}px`;
+      selBox.style.width = `${w}px`; selBox.style.height = `${h}px`;
+    });
+
+    overlay.addEventListener('mouseup', (e: MouseEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      const cssX = Math.min(e.clientX, startX), cssY = Math.min(e.clientY, startY);
+      const cssW = Math.abs(e.clientX - startX), cssH = Math.abs(e.clientY - startY);
+      if (cssW < 10 || cssH < 10) {
+        selBox.style.display = 'none';
+        hint.style.display = '';
+        return;
+      }
+      cleanup();
+      resolve({
+        x: Math.round(cssX * dpr), y: Math.round(cssY * dpr),
+        width: Math.round(cssW * dpr), height: Math.round(cssH * dpr),
+      });
+    });
+
+    document.addEventListener('keydown', onKeyDown, true);
+  });
 }
+
+
 
 // Keyboard Shortcut Command Listener
 chrome.commands.onCommand.addListener(async (command) => {
@@ -131,15 +273,47 @@ chrome.commands.onCommand.addListener(async (command) => {
       console.log('[Service Worker] Keyboard shortcut capture-visible triggered.');
       const sessions = await sessionRepo.findAll();
       if (sessions.length === 0) {
-        console.warn('[Service Worker] No active session found.');
+        console.warn('[Service Worker] No active session found — shortcut ignored.');
+        broadcastMessage({
+          type: 'SHOW_TOAST',
+          message: 'No active session. Open Snabby and start a session first.',
+          variant: 'warning'
+        });
         return;
       }
       const session = sessions[0];
       const settings = await getSettings();
+      const captureMode = settings.mode === 'VISIBLE' ? 'FULL_SCREEN' : 'CROP_REGION';
+
+      // For CROP_REGION: inject crop overlay into active tab and await user selection
+      if (captureMode === 'CROP_REGION') {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab?.id) {
+          console.error('[Service Worker] No active tab found for crop overlay.');
+          return;
+        }
+        try {
+          // Inject CropOverlay and run it; returns CropRect or { cancelled: true }
+          const [injectionResult] = await chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            func: runCropOverlayInPage,
+            world: 'MAIN',
+          });
+          const rect = injectionResult?.result;
+          if (!rect || rect.cancelled || rect.width < 10 || rect.height < 10) {
+            console.log('[Service Worker] Crop overlay: cancelled or too small.');
+            return;
+          }
+          captureAdapter.setCropRect(rect);
+        } catch (err) {
+          console.error('[Service Worker] Failed to inject crop overlay:', err);
+          return;
+        }
+      }
 
       const result = await captureScreenshot.execute({
         sessionId: session.id,
-        captureMode: settings.mode === 'VISIBLE' ? 'FULL_SCREEN' : 'CROP_REGION'
+        captureMode,
       });
 
       const captures = await captureRepo.findBySessionId(session.id);
@@ -191,6 +365,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             };
           }
           const session = await createSession.execute(message.name);
+          broadcastMessage({ type: 'SESSION_UPDATED' });
           return {
             success: true,
             data: { session }
@@ -202,6 +377,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             await deleteSession.execute(s.id);
           }
           const session = await createSession.execute(message.name);
+          broadcastMessage({ type: 'SESSION_UPDATED' });
           return {
             success: true,
             data: { session }
@@ -212,10 +388,12 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           for (const s of sessions) {
             await deleteSession.execute(s.id);
           }
+          broadcastMessage({ type: 'SESSION_UPDATED' });
           return { success: true };
         }
         case 'SET_CAPTURE_MODE': {
           await setSettings({ mode: message.mode });
+          broadcastMessage({ type: 'SESSION_UPDATED' });
           return {
             success: true,
             data: { mode: message.mode }
@@ -223,6 +401,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
         }
         case 'DELETE_CAPTURE': {
           await captureRepo.delete(message.captureId);
+          broadcastMessage({ type: 'SESSION_UPDATED' });
           return { success: true };
         }
         case 'GET_ALL_THUMBNAILS': {
@@ -234,9 +413,49 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             };
           }
           const captures = await captureRepo.findBySessionId(sessions[0].id);
+          const capturesWithImages = await Promise.all(
+            captures.map(async (c) => {
+              const imageAsset = await imageRepo.findById(c.imageId);
+              const ocrResult = await ocrRepo.findByCaptureId(c.id);
+
+              let status: string = OCRStatus.NOT_STARTED;
+              if (ocrResult) {
+                status = ocrResult.status;
+              } else if (c.status === 'PROCESSING') {
+                status = OCRStatus.PROCESSING;
+              } else if (c.status === 'FAILED') {
+                status = OCRStatus.FAILED;
+              }
+
+              let imageUrl = '';
+              if (imageAsset) {
+                const arrayBuffer = await imageAsset.data.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                let binaryString = '';
+                const len = bytes.byteLength;
+                const chunk = 8192;
+                for (let i = 0; i < len; i += chunk) {
+                  const slice = bytes.subarray(i, Math.min(i + chunk, len));
+                  binaryString += String.fromCharCode.apply(null, slice as any);
+                }
+                const base64 = btoa(binaryString);
+                imageUrl = `data:${imageAsset.data.type};base64,${base64}`;
+              }
+
+              return {
+                id: c.id,
+                sessionId: c.sessionId,
+                imageId: c.imageId,
+                status,
+                order: c.order,
+                createdAt: c.createdAt,
+                imageUrl
+              };
+            })
+          );
           return {
             success: true,
-            data: { captures }
+            data: { captures: capturesWithImages }
           };
         }
         case 'CHECK_OCR_STATUS': {
@@ -249,9 +468,11 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           }
           const captures = await captureRepo.findBySessionId(sessions[0].id);
           const ocrResults = await Promise.all(captures.map(c => ocrRepo.findByCaptureId(c.id)));
-          const completedCount = ocrResults.filter(r => r && r.status === OCRStatus.COMPLETED).length;
+          const completedOrFailedCount = ocrResults.filter(
+            r => r && (r.status === OCRStatus.COMPLETED || r.status === OCRStatus.FAILED)
+          ).length;
           const totalCount = captures.length;
-          const pendingCount = totalCount - completedCount;
+          const pendingCount = totalCount - completedOrFailedCount;
           return {
             success: true,
             data: { pendingCount, totalCount }
@@ -271,16 +492,48 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           }
           const session = sessions[0];
           const settings = await getSettings();
+          const captureMode = settings.mode === 'VISIBLE' ? 'FULL_SCREEN' : 'CROP_REGION';
+
+          // For CROP_REGION: inject crop overlay into active tab and await user selection
+          if (captureMode === 'CROP_REGION') {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!activeTab?.id) {
+              return {
+                success: false,
+                error: { code: 'NO_ACTIVE_TAB', message: 'No active tab found for crop overlay.', operation: 'CAPTURE_REQUEST' }
+              };
+            }
+            try {
+              const [injectionResult] = await chrome.scripting.executeScript({
+                target: { tabId: activeTab.id },
+                func: runCropOverlayInPage,
+                world: 'MAIN',
+              });
+              const rect = injectionResult?.result;
+              if (!rect || rect.cancelled || rect.width < 10 || rect.height < 10) {
+                // User cancelled — return success:true with null capture (no error)
+                return { success: true, data: { capture: null, cancelled: true } };
+              }
+              captureAdapter.setCropRect(rect);
+            } catch (err: any) {
+              console.error('[Service Worker] Crop overlay injection failed:', err);
+              return {
+                success: false,
+                error: { code: 'CROP_OVERLAY_FAILED', message: err.message, operation: 'CAPTURE_REQUEST' }
+              };
+            }
+          }
+
           const result = await captureScreenshot.execute({
             sessionId: session.id,
-            captureMode: settings.mode === 'VISIBLE' ? 'FULL_SCREEN' : 'CROP_REGION'
+            captureMode,
           });
 
-          const captures = await captureRepo.findBySessionId(session.id);
+          const updatedCaptures = await captureRepo.findBySessionId(session.id);
           broadcastMessage({
             type: 'CAPTURE_COMPLETE',
             captureId: result.capture.id,
-            count: captures.length
+            count: updatedCaptures.length
           });
 
           return {
@@ -301,16 +554,25 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             };
           }
           const session = sessions[0];
-          
+
+          // Generate PDF — if this throws, session is preserved (per doc 08 §25)
           const pdfBlob = await generatePDF.execute({
             sessionId: session.id,
             skipPendingOcr: message.skipPendingOcr ?? false
           });
 
+          // Download PDF — if this throws, session is preserved
           await downloadPDF.execute({
             pdfBlob,
             filename: message.filename
           });
+
+          // Only terminate the session AFTER a confirmed successful download
+          console.log('[Service Worker] PDF downloaded successfully. Ending session:', session.id);
+          await deleteSession.execute(session.id);
+
+          // Broadcast session state change so React UI refreshes to NewSessionView
+          broadcastMessage({ type: 'SESSION_UPDATED' });
 
           return { success: true };
         }
@@ -342,6 +604,39 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
   });
 
   return true; // Keep channel open for async response
+});
+
+// Active tab activation state tracking (tabId -> boolean)
+const activatedTabs = new Map<number, boolean>();
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id) return;
+  const currentActive = activatedTabs.get(tab.id) || false;
+  const nextActive = !currentActive;
+  activatedTabs.set(tab.id, nextActive);
+
+  if (nextActive) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['assets/popup.js']
+      });
+    } catch (err) {
+      console.error('[Service Worker] Failed to inject popup.js:', err);
+    }
+  }
+
+  // Send activation state update to tab
+  setTimeout(async () => {
+    try {
+      await chrome.tabs.sendMessage(tab.id!, {
+        type: 'ACTIVATION_CHANGED',
+        activated: nextActive
+      });
+    } catch (err) {
+      console.warn('[Service Worker] Failed to send ACTIVATION_CHANGED message:', err);
+    }
+  }, 100);
 });
 
 // Extension Life Cycle Events

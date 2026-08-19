@@ -22,25 +22,19 @@ The structure is designed for **understandability and maintainability**, not for
 snabby/
 │
 ├── src/
-│   │
-│   ├── app/
-│   ├── components/
-│   ├── features/
-│   ├── domain/
-│   ├── application/
-│   ├── infrastructure/
-│   ├── shared/
-│   │
-│   └── main.tsx
+│   ├── app/                    # React Root, CSS styles, and MessageBus provider composition
+│   ├── features/               # React feature UI (session, capture, pdf)
+│   ├── domain/                 # Core domain entities (Session, Capture, OCRResult, errors)
+│   ├── application/            # Application use cases & interfaces (CaptureScreenshot, RunOCR, GeneratePDF)
+│   ├── infrastructure/         # External infrastructure implementations (IndexedDB, Chrome, Tesseract, pdf-lib)
+│   ├── main.tsx                # Content-script Shadow DOM mounting entry point
+│   └── service-worker/         # Chrome Service Worker message & command router (index.ts)
 │
-├── public/
-├── tests/
-│
-├── manifest.json
+├── tests/                      # Integration and unit test suite
+├── manifest.json               # Chrome Extension Manifest V3 configuration
+├── build.mjs                   # Custom Vite build bundler script (copies offline Tesseract assets)
 ├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── README.md
+└── tsconfig.json
 ```
 
 The exact build configuration may differ depending on the chosen React/Chrome-extension setup.
@@ -436,16 +430,15 @@ PDF infrastructure implementation directory.
 ```text
 src/infrastructure/pdf/
 │
-├── PdfBuilder.ts         (existing placeholder; will be DELETED in Stage 5B)
-├── PdfExporter.ts        (existing placeholder; will be DELETED in Stage 5B)
-├── PdfLibPDFService.ts   (planned for Stage 5B; implements PDFService interface)
+├── PdfLibPDFService.ts   (implements PDFService interface using pdf-lib)
 └── coordinate/
-    └── CoordinateMapper.ts (planned for Stage 5B; handles layout math and coordinate conversion)
+    └── CoordinateMapper.ts (handles image space to PDF space coordinate conversion)
 ```
 
-Stale placeholder files `PdfBuilder.ts` and `PdfExporter.ts` will be removed during Stage 5B to eliminate competing or obsolete implementations. All PDF generation and assembly logic will be unified inside `PdfLibPDFService.ts`.
+`PdfLibPDFService.ts` handles PDF document creation, image embedding, dynamic page sizing (1:1 image aspect ratio + 10pt border), and selectable/invisible OCR text layer overlay. Obsolete placeholders (`PdfBuilder.ts` and `PdfExporter.ts`) have been completely removed.
 
-`pdf-lib` must only be imported in this directory. The application layer should not directly import `pdf-lib`.
+`pdf-lib` must only be imported in this directory. The application layer interacts strictly through the `PDFService` interface.
+
 
 
 

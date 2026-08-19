@@ -7,7 +7,6 @@ import type { SessionId } from '../../domain/common/ids.ts';
 import { Capture } from '../../domain/capture/Capture.ts';
 import { createImageId } from '../../domain/common/ids.ts';
 import type { ImageAsset } from '../../domain/image/image.types.ts';
-import { ValidationError } from '../../domain/common/errors.ts';
 import type { RunOCR } from '../ocr/RunOCR.ts';
 
 export interface CaptureScreenshotInput {
@@ -41,11 +40,7 @@ export class CaptureScreenshot {
   }
 
   public async execute(input: CaptureScreenshotInput): Promise<CaptureScreenshotResult> {
-    if (input.captureMode === 'CROP_REGION') {
-      throw new ValidationError('Crop region capture is not supported in this version.');
-    }
-
-    // 1. Capture screen through CaptureAdapter
+    // 1. Capture screen through CaptureAdapter (handles both FULL_SCREEN and CROP_REGION)
     const imageBlob = await this.captureAdapter.capture(input.captureMode);
 
     // 2. Process Blob through ImageProcessor to decode & normalize

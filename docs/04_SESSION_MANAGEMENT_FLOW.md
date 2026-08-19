@@ -1398,15 +1398,18 @@ PDF generation consumes the session.
 
 At any time, only one session can be ACTIVE. Creating a new session transitions the previous ACTIVE session to INACTIVE.
 
-### Decision 8 — No automatic session cleanup in v1
+### Decision 8 — Session Lifecycle & Termination Policy
 
-Sessions, including empty sessions and exported sessions, remain persisted until explicitly deleted by the user.
+- Only **one active session** exists per browser profile at any given time.
+- If a user attempts to start a new session while an active one exists, `START_SESSION` returns `SESSION_ACTIVE`, prompting the user to cancel or confirm overwrite (`CONFIRM_OVERWRITE`).
+- Upon a confirmed, successful PDF download via `EXPORT_PDF`, the active session is automatically terminated (`deleteSession.execute(session.id)`), returning the React UI to `NewSessionView`.
+- If PDF export or download fails, the active session is strictly preserved so captures are never lost.
 
-### Decision 7 — IndexedDB is accessed through repositories
+### Decision 9 — IndexedDB is accessed through repositories
 
-Session logic should not contain IndexedDB-specific implementation.
+Session logic does not contain IndexedDB-specific implementation. It accesses persistence via `SessionRepository`.
 
-### Decision 8 — React is not the source of persistent session state
+### Decision 10 — React is not the source of persistent session state
 
 The UI reflects application state backed by persistent storage.
 
@@ -1414,68 +1417,68 @@ The UI reflects application state backed by persistent storage.
 
 # 45. Session Management Decisions Finalized
 
-The following decisions are now resolved:
+The following decisions are resolved:
 
-1. **Current Session Identification**: The UI/caller retrieves the relevant session using the use cases `GetSession` / `CreateSession`.
-2. **Persistence Lifecycle**: Sessions remain persisted in IndexedDB until explicitly deleted by the user.
-3. **Session Deletion Cascade**: Purging a session cascades to captures, images, and OCRResults inside the repository database transaction, preventing orphan records.
-4. **Exceptions**: Missing session lookups throw a dedicated `SessionNotFoundError`.
-5. **Ordering**: Represented as a numeric `order` field on Capture records and sorted natively by compound index `[sessionId, order]` in IndexedDB.
+1. **One Active Session**: Enforced by `findAll()` checking in `src/service-worker/index.ts` and `CreateSession.ts`.
+2. **Current Session Identification**: The UI/caller retrieves the active session using the use cases `GetSession` / `CreateSession` via `GET_SESSION`.
+3. **Persistence Lifecycle**: Sessions remain persisted in IndexedDB until explicitly deleted by the user or auto-terminated upon successful PDF download.
+4. **Session Deletion Cascade**: Purging a session cascades to captures, images, and OCRResults inside the repository database transaction, preventing orphan records.
+5. **Exceptions**: Missing session lookups throw a dedicated `SessionNotFoundError`.
+6. **Ordering**: Represented as a numeric `order` field on Capture records and sorted natively by compound index `[sessionId, order]` in IndexedDB.
 
 ---
 
-# 46. Final Session Management Flow
+# 46. Final Session Management Flow & Implementation Map
 
-The complete conceptual flow is:
-
-```text id="s4v9q3"
-                  CAPTURE REQUEST
-                        │
-                        ▼
-                Find Current Session
-                        │
-                  ┌─────┴─────┐
-                  │           │
-                Found       Missing
-                  │           │
-                  │           ▼
-                  │      Create Session
-                  │           │
-                  └─────┬─────┘
-                        ▼
-                  Create Capture
-                        │
-                        ▼
-                 Assign Capture Order
-                        │
-                        ▼
-                Associate With Session
-                        │
-                        ▼
-                     Persist
-                        │
-                        ▼
-                 Updated Session
-                        │
-          ┌─────────────┼─────────────┐
-          │             │             │
-          ▼             ▼             ▼
-      Add More       Reorder        Delete
-      Captures       Captures       Capture
-          │             │             │
-          └─────────────┼─────────────┘
-                        ▼
-                  Persist Changes
-                        │
-                        ▼
-                  Current Session
-                        │
-                        ▼
-                 PDF Generation
+```text
+                  USER ACTION (Start Session / Shortcut)
+                                │
+                                ▼
+                   Service Worker (`src/service-worker/index.ts`)
+                                │
+              ┌─────────────────┴─────────────────┐
+              │ START_SESSION                     │ CAPTURE_REQUEST / Shortcut
+              ▼                                   ▼
+      Check Active Sessions               Find Active Session
+              │                                   │
+       ┌──────┴──────┐                     ┌──────┴──────┐
+       │             │                     │             │
+    No Session    Active Exists          Found        No Session
+       │             │                     │             │
+       ▼             ▼                     ▼             ▼
+  CreateSession   Prompt Overwrite     CaptureScreenshot  Show Toast
+       │             │                     │
+       ▼             ▼                     ▼
+  Save to DB    Confirm & Replace      Persist Capture
+       │             │                     │
+       └──────┬──────┘                     ▼
+              ▼                     Updated Session
+       Updated Session                     │
+              │                            ▼
+              ▼                     Download PDF (`EXPORT_PDF`)
+       React UI View                       │
+              │                     ┌──────┴──────┐
+              │                     │             │
+              │                  Success       Failure
+              │                     │             │
+              │                     ▼             ▼
+              │               DeleteSession   Preserve Session
+              │                     │
+              ▼                     ▼
+       Broadcast `SESSION_UPDATED` to all open tabs
 ```
 
-The central principle is:
+### Component Source Map
 
-> **A Snabby session is the persistent, ordered collection of captures that represents one document-building workflow.**
+| Layer | File Path | Responsibility | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Domain Entity** | `src/domain/session/Session.ts` | Session entity representing an ordered capture workflow. | `SessionId`, `Timestamp` |
+| **Domain Types** | `src/domain/session/session.types.ts` | Session interface and type definitions. | Domain types |
+| **Application (Create)** | `src/application/session/CreateSession.ts` | Use case to initialize and persist a new Session. | `SessionRepository` |
+| **Application (Delete)** | `src/application/session/DeleteSession.ts` | Use case to delete a Session by ID. | `SessionRepository` |
+| **Application (Get)** | `src/application/session/GetSession.ts` | Use case to retrieve a Session by ID. | `SessionRepository` |
+| **Application (Update)** | `src/application/session/UpdateSession.ts` | Use case to update Session attributes. | `SessionRepository` |
+| **Infrastructure Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts` | Implements `SessionRepository` using IndexedDB `sessions` store. | `DBService`, `SessionMapper` |
+| **React Presentation Hook** | `src/features/session/hooks/useSession.ts` | Dispatches session messages and manages local React session state. | `useMessageBus` |
+| **React Presentation Views**| `src/features/session/components/ActiveSessionView.tsx`, `NewSessionView.tsx` | Render active session dashboard and new session creation UI. | React components |
 
-Implementation status: Image Processing has now been finalized and implemented in document 05.

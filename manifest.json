@@ -8,10 +8,21 @@
     "scripting",
     "offscreen",
     "storage",
+    "unlimitedStorage",
+    "tabs",
     "downloads"
   ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["assets/popup.js"],
+      "run_at": "document_end"
+    }
+  ],
   "action": {
-    "default_popup": "index.html",
     "default_title": "Snabby"
   },
   "background": {
@@ -26,5 +37,18 @@
       },
       "description": "Capture visible viewport screenshot"
     }
-  }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/*",
+        "assets/tesseract/*",
+        "src/infrastructure/ocr/offscreen/offscreen.html"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

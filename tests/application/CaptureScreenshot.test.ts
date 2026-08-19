@@ -183,18 +183,19 @@ async function runTests() {
     persistence.shouldFail = false;
   }
 
-  // Test 10: CROP_REGION throws ValidationError
+  // Test 10: CROP_REGION succeeds
   try {
-    await useCase.execute({
+    const result = await useCase.execute({
       sessionId,
       captureMode: 'CROP_REGION'
     });
-    console.error('✗ Test 10: CROP_REGION rejection - FAIL (Did not throw)');
-    process.exit(1);
+    assert(result.capture instanceof Capture, 'Returns a Capture entity for CROP_REGION');
+    assert(adapter.lastSourceCalled === 'CROP_REGION', 'CaptureAdapter received CROP_REGION source');
+    console.log('✓ Test 10: CROP_REGION execution - PASS');
   } catch (err: unknown) {
-    assert(err instanceof ValidationError, 'Throws ValidationError');
-    assert(err instanceof Error && err.message.includes('not supported'), 'Message contains crop region validation failure');
-    console.log('✓ Test 10: CROP_REGION rejection - PASS');
+    console.error('✗ Test 10: CROP_REGION execution - FAIL');
+    console.error(err);
+    process.exit(1);
   }
 
   console.log('All Snabby Capture Stage 3 Unit Tests passed successfully!');

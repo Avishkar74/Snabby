@@ -55,12 +55,18 @@ Service Worker
 React
 ```
 
+Events do not require a response.
+
 Examples:
 
 ```text
 CAPTURE_COMPLETE
+SESSION_UPDATED
 SESSION_RESTORED
 OCR_COMPLETED
+OCR_FAILED
+ACTIVATION_CHANGED
+SHOW_TOAST
 ```
 
 Events do not require a response.
@@ -331,6 +337,39 @@ Used after the user selects and crops a region.
 The current implementation receives the cropped image from the content script and passes it to `SessionManager.addScreenshot()`. 
 
 In v1, the underlying persistence will use IndexedDB rather than the old storage layer.
+
+---
+
+# 10.5. `CAPTURE_REQUEST`
+
+### Direction
+
+```text
+React → Service Worker
+```
+
+Used when the user triggers screenshot acquisition via the capture button in the React popup interface.
+
+### Request
+
+```ts
+{
+  type: "CAPTURE_REQUEST"
+}
+```
+
+### Response
+
+```ts
+{
+  success: true,
+  data: {
+    capture: Capture
+  }
+}
+```
+
+The Service Worker will execute visible tab capture, perform image scaling/processing, persist records to IndexedDB, and return the populated Capture object.
 
 ---
 
@@ -1040,6 +1079,7 @@ SAVE_REGION_CAPTURE
 DELETE_CAPTURE
 GET_ALL_THUMBNAILS
 CHECK_OCR_STATUS
+CAPTURE_REQUEST
 EXPORT_PDF
 ```
 

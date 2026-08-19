@@ -1259,29 +1259,35 @@ The resulting architecture is:
 
 ---
 
-# 47. Final Responsibilities
+# 47. Final Responsibilities & Implementation Paths
 
-| Module             | Responsibility                       |
-| ------------------ | ------------------------------------ |
-| React Components   | UI                                   |
-| React Hooks        | Connect UI to application            |
-| Use Cases          | Application workflows                |
-| Domain Services    | Business/data transformations        |
-| Session Repository | Session persistence                  |
-| Capture Repository | Capture persistence                  |
-| Image Repository   | Image Blob persistence               |
-| OCR Repository     | OCR persistence                      |
-| Image Processor    | Image normalization                  |
-| OCR Service        | OCR orchestration                    |
-| OCR Adapter        | Tesseract communication              |
-| PDF Service        | PDF workflow                         |
-| PDF Builder        | PDF construction                     |
-| Download Service   | Download workflow                    |
-| Chrome Adapters    | Chrome API access                    |
-| IndexedDB Layer    | Persistent storage                   |
-| Message Bus        | Cross-context communication          |
-| Service Worker     | Extension infrastructure coordinator |
-| Offscreen Document | OCR execution environment            |
+| Module | Exact File Path | Responsibility | Boundary |
+| :--- | :--- | :--- | :--- |
+| **React Components** | `src/app/App.tsx`, `src/features/**/components/*.tsx` | Renders UI views, cards, modals, lightbox, floating mascot | Presentation (Shadow DOM) |
+| **React Hooks** | `src/features/**/hooks/*.ts` | Connects React UI to MessageBus / Service Worker commands | Presentation State |
+| **Message Bus Provider** | `src/app/providers/MessageBusContext.tsx` | Supplies `MessageBus` to React component tree | Presentation Context |
+| **Use Cases (Session)** | `src/application/session/*.ts` | Orchestrates create, get, update, delete session | Application |
+| **Use Case (Capture)** | `src/application/capture/CaptureScreenshot.ts` | Orchestrates screenshot acquisition, image processing, atomic persistence, async OCR dispatch | Application |
+| **Use Cases (OCR)** | `src/application/ocr/RunOCR.ts`, `GetOCRResult.ts` | Orchestrates OCR execution and result persistence | Application |
+| **Use Cases (PDF)** | `src/application/pdf/GeneratePDF.ts`, `DownloadPDF.ts` | Orchestrates PDF document assembly and download dispatch | Application |
+| **Domain Entities** | `src/domain/**/*.ts` | Encapsulates Session, Capture, OCRResult invariants & models | Domain |
+| **Session Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts` | Session entity IndexedDB persistence | Infrastructure / DB |
+| **Capture Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBCaptureRepository.ts` | Capture entity IndexedDB persistence | Infrastructure / DB |
+| **Image Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBImageRepository.ts` | ImageAsset (Blob) IndexedDB persistence | Infrastructure / DB |
+| **OCR Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts` | OCRResult entity IndexedDB persistence | Infrastructure / DB |
+| **Capture Persistence Service** | `src/infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts` | Atomic multi-store persistence across `['captures', 'images']` | Infrastructure / DB |
+| **Image Processor** | `src/infrastructure/image/BrowserImageProcessor.ts` | Image Blob integrity validation and dimension extraction via `createImageBitmap` | Infrastructure / Image |
+| **OCR Adapter** | `src/infrastructure/ocr/TesseractOCRAdapter.ts` | Sends OCR request to Offscreen Document over MessageBus, normalizes word bounding boxes | Infrastructure / OCR |
+| **Offscreen Host** | `src/infrastructure/ocr/offscreen/offscreen.ts` | Listens for OCR messages in offscreen DOM context, runs TesseractWorker | Infrastructure / Offscreen |
+| **Tesseract Worker** | `src/infrastructure/ocr/TesseractWorker.ts` | Initializes local offline Tesseract.js worker and executes OCR recognition | Infrastructure / WASM |
+| **PDF Service** | `src/infrastructure/pdf/PdfLibPDFService.ts` | Assembles PDF with embedded images and selectable invisible OCR text layer using `pdf-lib` | Infrastructure / PDF |
+| **Coordinate Mapper** | `src/infrastructure/pdf/coordinate/CoordinateMapper.ts` | Maps image-space top-left coordinates to PDF-space bottom-left coordinates | Infrastructure / Math |
+| **Download Service** | `src/infrastructure/chrome/downloads/ChromeDownloadAdapter.ts` | Downloads PDF Blob via `chrome.downloads.download()` using data URL conversion | Infrastructure / Chrome |
+| **Capture Adapter** | `src/infrastructure/chrome/capture/ChromeCaptureAdapter.ts` | Captures visible tab and performs canvas cropping with coordinate clamping | Infrastructure / Chrome |
+| **Crop Overlay** | `src/content/CropOverlay.ts` | Injected drag-selection overlay with devicePixelRatio scaling | Infrastructure / Content |
+| **Message Bus** | `src/infrastructure/messaging/ChromeMessageBus.ts` | Correlation-based request/response and broadcast event bus | Infrastructure / Messaging |
+| **Service Worker** | `src/service-worker/index.ts` | Extension runtime composition root, shortcut listener, command router | Composition Root |
+
 
 ---
 

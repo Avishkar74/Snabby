@@ -171,41 +171,20 @@ Add OCR text
 
 ---
 
-# 8. Page Dimensions
+# 8. Page Dimensions & Page Sizing Policy
 
-The screenshot and PDF page may have different dimensions.
-
-For example:
+In Snabby v1, PDF page dimensions are dynamically set to match the exact 1:1 aspect ratio of the screenshot image plus a uniform 10pt white border margin:
 
 ```text
-Image:
-W × H
-
-PDF:
-PW × PH
+pageWidth  = imageWidth + 20
+pageHeight = imageHeight + 20
 ```
 
-The screenshot therefore needs to be transformed to fit the PDF page.
-
-Conceptually:
-
-```text
-Screenshot
-┌───────────────────┐
-│                   │
-│     Webpage       │
-│                   │
-└───────────────────┘
-          ↓
-       Scale
-          ↓
-PDF Page
-┌───────────────────┐
-│     Webpage       │
-└───────────────────┘
-```
-
-The exact page-size policy will be decided during LLD.
+This ensures that:
+- Screenshots (whether visible viewport or full-page captures) are never distorted, cropped, letterboxed, or pillarboxed.
+- The scaling factor is fixed at `scale = 1.0`.
+- The image is rendered centered at offset `(x = 10, y = 10)`.
+- OCR coordinate mapping is simplified: `pdfX = wordX + 10` and `pdfY = pageHeight - 10 - wordY - wordHeight`.
 
 ---
 
@@ -214,10 +193,12 @@ The exact page-size policy will be decided during LLD.
 The PDF generator calculates:
 
 ```text
-scale
-x
-y
-renderedWidth
+scale = 1.0
+x = 10
+y = 10
+renderedWidth = imageWidth
+renderedHeight = imageHeight
+```
 renderedHeight
 ```
 
@@ -816,37 +797,43 @@ Stored OCR coordinates remain in image coordinates.
 ### Decision 6 — PDF generation is independent of downloading
 The PDF subsystem produces a Blob; the download subsystem triggers the browser download.
 
-### Decision 7 — Page Size and Scaling (A4 Contain-Fit)
-To accommodate landscape and portrait captures cleanly:
-- If `W >= H`, the page size is A4 landscape (`width = 842`, `height = 595`).
-- If `W < H`, the page size is A4 portrait (`width = 595`, `height = 842`).
-- Contain-fit uniform scaling is used:
-  - `scaleX = pageWidth / W`
-  - `scaleY = pageHeight / H`
-  - `scale = min(scaleX, scaleY)`
-  - `renderedWidth = W * scale`
-  - `renderedHeight = H * scale`
-- The screenshot is centered on the page:
-  - `imgLeft = (pageWidth - renderedWidth) / 2`
-  - `imgBottom = (pageHeight - renderedHeight) / 2`
+### Decision 7 — Page Size and Scaling (1:1 Aspect Ratio + 10pt Border)
+To preserve the native screenshot resolution without distortion, letterboxing, or scaling artifacts:
+- Page dimensions dynamically match the screenshot plus a 10pt white border margin:
+  - `pageWidth = imageWidth + 20`
+  - `pageHeight = imageHeight + 20`
+- Scaling factor is fixed at `scale = 1.0`.
+- The screenshot is drawn at:
+  - `imgLeft = 10`
+  - `imgBottom = 10`
+  - `renderedWidth = imageWidth`
+  - `renderedHeight = imageHeight`
 
 ### Decision 8 — Coordinate Transformation Formula
-OCR bounding boxes `(x_img, y_img, w_img, h_img)` (with top-left origin) are mapped to PDF coordinates `(x_pdf, y_pdf)` (with bottom-left origin) using:
+OCR bounding boxes `(x_img, y_img, w_img, h_img)` (with top-left origin) are mapped to PDF coordinates `(x_pdf, y_pdf)` (with bottom-left origin) using `CoordinateMapper.map`:
 - `w_pdf = w_img * scale`
 - `h_pdf = h_img * scale`
 - `x_pdf = imgLeft + (x_img * scale)`
 - `y_pdf = imgBottom + (imageHeight - y_img - h_img) * scale`
 
 ### Decision 9 — OCR Text Overlay Strategy
-Text is drawn on top of the screenshot using `pdf-lib`'s `drawText` with `opacity: 0` at word-level to allow selection and searching without causing visual duplication. Font size is set to `h_pdf` to match the visual height.
+Text is drawn on top of the screenshot using `pdf-lib`'s `drawText` with `opacity: 0` (invisible selectable text) at word-level to allow selection and searching without visual duplication. Font size is set to `h_pdf` (embedded StandardFonts.Helvetica).
 
 ### Decision 10 — OCR Status & skipPendingOcr Behavior
-- **`skipPendingOcr = false`**: The GeneratePDF usecase polls the database/status until all captures are in a terminal state (`COMPLETED` or `FAILED`). If any capture's OCR is `PENDING`/`PROCESSING`, it waits.
-- **`skipPendingOcr = true`**: Usecase compiles the PDF immediately. Captures with completed OCR get the overlay layer; captures with pending or failed OCR are rendered as image-only pages.
+- **`skipPendingOcr = false`**: The GeneratePDF usecase polls `OCRRepository` every 500ms until all session captures are in a terminal state (`COMPLETED` or `FAILED`). If any capture's OCR is `PENDING`/`PROCESSING`, it waits.
+- **`skipPendingOcr = true`**: Usecase compiles the PDF immediately. Captures with completed OCR get the selectable overlay; captures with pending or failed OCR are rendered as image-only pages.
 
 ### Decision 11 — Memory Strategy
 Captures are processed one at a time. The image binary is loaded, embedded into the PDF document, and intermediate ArrayBuffer/Blob resources are immediately released for garbage collection.
 
+### Component Source Map
+
+| Layer | File Path | Responsibility | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Application Use Case** | `src/application/pdf/GeneratePDF.ts` | Orchestrates capture loading, OCR status polling, and PDFService invocation. | `SessionRepository`, `CaptureRepository`, `OCRRepository`, `PDFService` |
+| **Application Interface** | `src/application/interfaces/services/PDFService.ts` | Service boundary contract for PDF generation. | `Session`, `Capture` |
+| **Infrastructure Service** | `src/infrastructure/pdf/PdfLibPDFService.ts` | Implements `PDFService` using `pdf-lib`, handles image embedding and invisible text overlay. | `pdf-lib`, `ImageRepository`, `OCRRepository`, `CoordinateMapper` |
+| **Infrastructure Coordinate Mapper** | `src/infrastructure/pdf/coordinate/CoordinateMapper.ts` | Pure math utility for top-left image to bottom-left PDF coordinate conversion. | None |
 
 ---
 
@@ -872,13 +859,10 @@ Captures are processed one at a time. The image binary is loaded, embedded into 
               │                │
               └───────┬────────┘
                       ▼
-                 Create Page
+                 Create Page (imageWidth + 20, imageHeight + 20)
                       │
                       ▼
-              Calculate Scaling
-                      │
-                      ▼
-               Draw Screenshot
+               Draw Screenshot (offset 10, 10)
                       │
                       ▼
                OCR Available?
@@ -907,3 +891,4 @@ Captures are processed one at a time. The image binary is loaded, embedded into 
 ```
 
 > **Core principle:** PDF generation combines the persisted screenshot and its OCR data without modifying either. The screenshot provides the visual page, while the OCR result provides the searchable text layer.
+

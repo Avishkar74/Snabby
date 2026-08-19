@@ -925,97 +925,53 @@ A use case can **orchestrate** these operations, but individual services remain 
 
 ---
 
-# 28. Main Public Use Cases
+# 28. Main Public Use Cases & Implementation Paths
 
-The core Snabby application API should conceptually expose:
+The finalized Snabby application layer exposes concrete use cases organized by domain:
 
-```text
-Session
-├── createSession
-├── getSession
-├── updateSession
-└── deleteSession
-
-Capture
-├── capture
-├── getCaptures
-├── deleteCapture
-└── reorderCaptures
-
-OCR
-├── runOCR
-└── getOCRResult
-
-PDF
-├── generatePDF
-└── downloadPDF
-```
-
-This is the first-level contract we will design the LLD around.
+| Domain | File Path | Method Signature | Boundary / Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Session** | `src/application/session/CreateSession.ts` | `execute(name?: string): Promise<Session>` | `SessionRepository` |
+| **Session** | `src/application/session/GetSession.ts` | `execute(id: SessionId): Promise<Session \| null>` | `SessionRepository` |
+| **Session** | `src/application/session/UpdateSession.ts` | `execute(input: UpdateSessionInput): Promise<Session>` | `SessionRepository` |
+| **Session** | `src/application/session/DeleteSession.ts` | `execute(id: SessionId): Promise<void>` | `SessionRepository` |
+| **Capture** | `src/application/capture/CaptureScreenshot.ts` | `execute(input: CaptureScreenshotInput): Promise<CaptureScreenshotOutput>` | `CaptureAdapter`, `ImageProcessor`, `CapturePersistenceService`, `CaptureRepository`, `RunOCR` |
+| **OCR** | `src/application/ocr/RunOCR.ts` | `execute(input: RunOCRInput): Promise<OCRResult>` | `OCRService`, `OCRRepository`, `CaptureRepository` |
+| **OCR** | `src/application/ocr/GetOCRResult.ts` | `execute(captureId: CaptureId): Promise<OCRResult \| null>` | `OCRRepository` |
+| **PDF** | `src/application/pdf/GeneratePDF.ts` | `execute(input: GeneratePDFInput): Promise<Blob>` | `SessionRepository`, `CaptureRepository`, `OCRRepository`, `PDFService` |
+| **PDF** | `src/application/pdf/DownloadPDF.ts` | `execute(input: DownloadPDFInput): Promise<void>` | `DownloadService` |
 
 ---
 
 # 29. Function Dependency Graph
 
 ```text
-                     React
-                       │
-              ┌────────┼─────────┐
-              ▼        ▼         ▼
-           Session   Capture     PDF
-           Use Case  Use Case   Use Case
-              │        │         │
-              │        │         ├── Image Repository
-              │        │         ├── OCR Repository
-              │        │         └── PDF Builder
-              │        │
-              │        ├── Capture Adapter
-              │        ├── Image Processor
-              │        └── OCR Service
-              │
-              ▼
-         Session Repository
-              │
-              ▼
-           IndexedDB
+                     React Presentation
+                             │
+            ┌────────────────┼────────────────┐
+            ▼                ▼                ▼
+         Session          Capture            PDF
+        Use Cases        Use Case         Use Cases
+            │                │                │
+            │                │                ├── ImageRepository
+            │                │                ├── OCRRepository
+            │                │                └── PDFService (`PdfLibPDFService`)
+            │                │
+            │                ├── CaptureAdapter (`ChromeCaptureAdapter`)
+            │                ├── ImageProcessor (`BrowserImageProcessor`)
+            │                ├── PersistenceService (`IndexedDBCapturePersistenceService`)
+            │                └── RunOCR (`TesseractOCRAdapter`)
+            │
+            ▼
+     SessionRepository (`IndexedDBSessionRepository`)
+            │
+            ▼
+     IndexedDB (`snabby-db`)
 ```
 
 ---
 
-# 30. What Is Not Final Yet
+# 30. Implementation Status
 
-These contracts deliberately do **not** freeze:
+All public application use cases, domain entities, and infrastructure adapters are implemented and verified with end-to-end unit test coverage across stages 1–5 and React presentation layer.
 
-* Exact TypeScript types.
-* Exact parameter names.
-* Exact return DTOs.
-* Exact error classes.
-* Exact repository interfaces.
-* Exact Chrome adapter APIs.
-* Exact Tesseract adapter API.
-* Exact PDF library interface.
-
-Those belong in the LLD and external-contract documents.
-
----
-
-# 31. Critical Reference Check Before LLD
-
-There is one important thing I **don't want to guess** from the old project:
-
-The exact existing implementation contracts for:
-
-```text
-Capture metadata
-Image processing output
-OCR result structure
-Tesseract communication
-PDF generator inputs
-Current chrome.storage.local structure
-```
-
-Since you said you can provide the current implementation whenever needed, **before we freeze the final schemas and LLD, we should inspect those files**.
-
-That is especially important because we're rebuilding the project while preserving the existing behavior.
-
-So the next document, `14_CONSTANTS_AND_CONFIGURATION.md`, can be drafted from the architecture we already established, but **before `15_EXTERNAL_CONTRACTS.md` and `16_LLD.md`, I recommend you provide the relevant current implementation files so we can replace these conceptual contracts with the actual behavior of Snabby.**

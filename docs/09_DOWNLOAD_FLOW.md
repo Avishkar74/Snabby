@@ -459,62 +459,70 @@ Whether the generated PDF Blob is retained for retry or the PDF is regenerated w
 
 ---
 
-# 18. Key Invariants
+# 18. Key Invariants & Session Lifecycle
 
-1. Downloading does not modify persistent session data.
-2. PDF generation and downloading remain separate operations.
-3. Chrome-specific download APIs are isolated behind an adapter.
-4. Temporary Base64 URL references are released.
-5. Download failure does not invalidate the generated PDF or session.
-6. Filename generation is centralized rather than scattered through the UI.
+1. **Session Lifecycle Policy**:
+   - A **successful** download terminates the active session: `deleteSession.execute(session.id)` is invoked, and `SESSION_UPDATED` is broadcast to return the React UI to the `NewSessionView`.
+   - A **failed** PDF generation or failed download preserves the active session, allowing the user to retry without losing captures.
+2. PDF generation and downloading remain separate application use cases (`GeneratePDF.ts` and `DownloadPDF.ts`).
+3. Chrome-specific download APIs are isolated behind `ChromeDownloadAdapter.ts`.
+4. Temporary Base64 data URL references are created only inside the adapter.
+5. Download failure does not invalidate the session or its persisted captures/images/OCR results.
+6. Filename generation and sanitization are centralized in the application layer.
 
 ---
 
-# 19. Reconciled Download Decisions
+# 19. Reconciled Download Decisions & Implementation Map
 
 ### Decision 1 — Filename Format
 - **Format**: `Snabby_<session-name>.pdf` (with whitespace replaced by underscores and invalid characters removed).
 - **Fallback**: If the session has no name, the filename is `Snabby_<timestamp>.pdf`, where timestamp is milliseconds since Unix epoch.
 
 ### Decision 2 — MV3 Blob URL Fallback
-- Since `URL.createObjectURL` is unavailable inside extension background service workers, the `ChromeDownloadAdapter` (implementing `DownloadService` inside the infrastructure layer) reads the PDF Blob as an ArrayBuffer, converts it to a Base64 string, and constructs a `data:application/pdf;base64,...` URL.
+- Since `URL.createObjectURL` is unavailable inside extension background service workers, the `ChromeDownloadAdapter` (implementing `DownloadService` inside `src/infrastructure/chrome/downloads/ChromeDownloadAdapter.ts`) reads the PDF Blob as an ArrayBuffer, converts it to a Base64 string, and constructs a `data:application/pdf;base64,...` URL.
 
 ### Decision 3 — Chrome Downloads API Integration
-- The Base64 data URL is passed directly to the `chrome.downloads.download` API.
-- The `"downloads"` permission must be added to `manifest.json` in Stage 5B.
+- The Base64 data URL is passed directly to `chrome.downloads.download()`.
+- The `"downloads"` permission is configured in `manifest.json`.
+
+### Component Source Map
+
+| Layer | File Path | Responsibility | Dependencies |
+| :--- | :--- | :--- | :--- |
+| **Application Use Case** | `src/application/pdf/DownloadPDF.ts` | Orchestrates filename sanitization and passes PDF Blob to `DownloadService`. | `DownloadService` |
+| **Infrastructure Adapter** | `src/infrastructure/chrome/downloads/ChromeDownloadAdapter.ts` | Converts PDF Blob to Base64 data URL and calls `chrome.downloads.download()`. | `chrome.downloads` |
+| **Runtime Coordinator** | `src/service-worker/index.ts` | Handles `EXPORT_PDF` message, calls `generatePDF` and `downloadPDF`, terminates session on success, broadcasts `SESSION_UPDATED`. | `GeneratePDF`, `DownloadPDF`, `DeleteSession` |
 
 ---
 
 # 20. Final Architecture
 
 ```text
-React
+React UI (`ActiveSessionView.tsx`)
   │
+  │ Sends EXPORT_PDF { skipPendingOcr }
   ▼
-Generate PDF Use Case
+Service Worker (`src/service-worker/index.ts`)
   │
-  ▼
-PDFService (generate)
+  ├── 1. GeneratePDF Use Case (`src/application/pdf/GeneratePDF.ts`)
+  │        ↓
+  │      PdfLibPDFService (`src/infrastructure/pdf/PdfLibPDFService.ts`)
+  │        ↓
+  │      PDF Blob produced
   │
-  ▼
-PDF Blob
+  ├── 2. DownloadPDF Use Case (`src/application/pdf/DownloadPDF.ts`)
+  │        ↓
+  │      ChromeDownloadAdapter (`src/infrastructure/chrome/downloads/ChromeDownloadAdapter.ts`)
+  │        ↓
+  │      `chrome.downloads.download({ url: dataUrl, filename })`
   │
-  ▼
-Download PDF Use Case
-  │
-  ▼
-DownloadService.download(pdfBlob, filename)
-  │
-  ▼
-ChromeDownloadAdapter (Blob → ArrayBuffer → Base64 conversion)
-  │
-  ▼
-Chrome Downloads API
-```
-  │
-  ▼
-User's Downloads folder
+  └── 3. If Download Confirmed:
+           ↓
+         DeleteSession (`src/application/session/DeleteSession.ts`)
+           ↓
+         Broadcast `SESSION_UPDATED` (UI resets to NewSessionView)
 ```
 
-> **Core principle:** PDF generation produces the document; the download subsystem converts the Blob into a Base64 data URL and initiates the browser's download manager.
+> **Core principle:** PDF generation produces the document; the download subsystem converts the Blob into a Base64 data URL and initiates the browser's download manager. Upon confirmed download completion, the session lifecycle ends cleanly.
+
 

@@ -1,8 +1,10 @@
 import type { SessionRepository } from '../interfaces/repositories/SessionRepository.ts';
 import type { CaptureRepository } from '../interfaces/repositories/CaptureRepository.ts';
+import type { OCRRepository } from '../interfaces/repositories/OCRRepository.ts';
 import type { PDFService } from '../interfaces/services/PDFService.ts';
 import { SessionNotFoundError, NoCapturesError } from './errors.ts';
-import type { SessionId } from '../../domain/common/ids.ts';
+import type { SessionId, CaptureId } from '../../domain/common/ids.ts';
+import { OCRStatus } from '../../domain/ocr/ocr.types.ts';
 
 export interface GeneratePDFInput {
   sessionId: string;
@@ -12,15 +14,18 @@ export interface GeneratePDFInput {
 export class GeneratePDF {
   private sessionRepo: SessionRepository;
   private captureRepo: CaptureRepository;
+  private ocrRepo: OCRRepository;
   private pdfService: PDFService;
 
   constructor(
     sessionRepo: SessionRepository,
     captureRepo: CaptureRepository,
+    ocrRepo: OCRRepository,
     pdfService: PDFService
   ) {
     this.sessionRepo = sessionRepo;
     this.captureRepo = captureRepo;
+    this.ocrRepo = ocrRepo;
     this.pdfService = pdfService;
   }
 
@@ -45,27 +50,49 @@ export class GeneratePDF {
 
     // 3. Handle pending OCR polling if skipPendingOcr is false
     if (!skipPendingOcr) {
-      await this.waitForPendingOcr(typedSessionId);
+      await this.waitForPendingOcr(sortedCaptures.map(c => c.id));
     }
 
     // 4. Call PDFService to assemble the final document
     return this.pdfService.generate(session, sortedCaptures);
   }
 
-  private async waitForPendingOcr(sessionId: SessionId): Promise<void> {
-    const maxRetries = 60; // 30 seconds max wait time (at 500ms intervals)
+  /**
+   * Polls the OCRRepository (NOT Capture.status — which RunOCR never updates)
+   * to determine if all captures have reached a terminal OCR state.
+   * 
+   * A capture is "done" when:
+   * - An OCRResult exists with status COMPLETED or FAILED, OR
+   * - No OCRResult exists AND > 60 seconds have passed (hard timeout safety net)
+   */
+  private async waitForPendingOcr(captureIds: CaptureId[]): Promise<void> {
+    console.log(`[GeneratePDF] Waiting for OCR on ${captureIds.length} capture(s)...`);
+    const maxRetries = 60; // 30 seconds max (at 500ms intervals)
     let retries = 0;
 
     while (retries < maxRetries) {
-      // Query the database to check current processing statuses
-      const currentCaptures = await this.captureRepo.findBySessionId(sessionId);
-      const isAnyPending = currentCaptures.some(
-        (c) => c.status === 'PENDING' || c.status === 'PROCESSING'
+      // Poll OCRRepository directly — this is the authoritative source for OCR state
+      const ocrResults = await Promise.all(
+        captureIds.map(id => this.ocrRepo.findByCaptureId(id))
       );
 
-      if (!isAnyPending) {
-        return; // All captures have concluded OCR (either COMPLETED or FAILED)
+      // A capture is "terminal" if it has an OCR result with COMPLETED or FAILED status
+      const allTerminal = ocrResults.every(
+        (result) => result !== null && (
+          result.status === OCRStatus.COMPLETED || 
+          result.status === OCRStatus.FAILED
+        )
+      );
+
+      if (allTerminal) {
+        console.log(`[GeneratePDF] All ${captureIds.length} OCR result(s) are in terminal state.`);
+        return;
       }
+
+      const pendingCount = ocrResults.filter(
+        r => r === null || (r.status !== OCRStatus.COMPLETED && r.status !== OCRStatus.FAILED)
+      ).length;
+      console.log(`[GeneratePDF] OCR pending: ${pendingCount}/${captureIds.length}. Waiting 500ms...`);
 
       await new Promise((resolve) => setTimeout(resolve, 500));
       retries++;
