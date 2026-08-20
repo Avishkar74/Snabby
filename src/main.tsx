@@ -24,6 +24,16 @@ if (!document.getElementById('wsn-root')) {
   container.id = 'wsn-react-root';
   shadow.appendChild(container);
 
+  // Prevent keyboard events from leaking out of the Shadow DOM into the host page.
+  // Without this, composed keyboard events retarget and bubble to the host document,
+  // triggering host-page shortcuts (e.g. GitHub search box, Slack message compose).
+  const KEYBOARD_EVENTS = ['keydown', 'keyup', 'keypress'] as const;
+  KEYBOARD_EVENTS.forEach((eventType) => {
+    container.addEventListener(eventType, (e: Event) => {
+      e.stopPropagation();
+    });
+  });
+
   const bus = new ChromeMessageBus();
 
   createRoot(container).render(

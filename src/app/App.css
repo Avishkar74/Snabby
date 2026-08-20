@@ -23,7 +23,7 @@
   pointer-events: auto;
   z-index: 2147483647;
   user-select: none;
-  opacity: 0.3;
+  opacity: 0.5;
   transition: opacity 400ms ease, transform 150ms ease;
 }
 .wsn-floating-icon:hover {
