@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Snabby",
   "version": "1.0.0",
-  "description": "Snabby is a browser extension that lets you capture screenshots from any webpage across multiple tabs and combine them into a PDF. Just press Ctrl + Shift + S (or Cmd + Shift + S) and hit download. As simple as that. It also uses OCR to extract text from the captured screenshots.",
+  "description": "Snabby lets you capture screenshots from any webpage across multiple tabs and combine them into a PDF. In a click!",
   "permissions": [
     "activeTab",
     "scripting",
