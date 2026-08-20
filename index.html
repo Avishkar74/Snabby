@@ -1,13 +1,504 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>snabby</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snabby — Privacy Policy</title>
+  <link rel="icon" type="image/png" href="data:image/png;base64,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">
+  <style>
+    :root {
+      --color-bg: #f8fafc;
+      --color-card: #ffffff;
+      --color-text-primary: #0f172a;
+      --color-text-secondary: #475569;
+      --color-primary: #2563eb;
+      --color-primary-hover: #1d4ed8;
+      --color-border: #e2e8f0;
+      --color-divider: #f1f5f9;
+      --color-callout-bg: #eff6ff;
+      --color-callout-border: #bfdbfe;
+      --color-callout-text: #1e3a8a;
+      --font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--color-bg);
+      color: var(--color-text-primary);
+      font-family: var(--font-family);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--color-card);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+      overflow: hidden;
+    }
+
+    /* Header styling */
+    .header {
+      padding: 48px 48px 32px 48px;
+      border-bottom: 1px solid var(--color-border);
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    }
+
+    .header-logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .header-logo-img {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #0f172a;
+      display: block;
+      object-fit: contain;
+      user-select: none;
+    }
+
+    .header-logo-text {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      letter-spacing: -0.025em;
+    }
+
+    .header h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+      color: var(--color-text-primary);
+    }
+
+    .header-meta {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+    }
+
+    /* Layout styling */
+    .layout {
+      display: flex;
+      position: relative;
+    }
+
+    /* Sidebar Table of Contents */
+    .sidebar {
+      width: 280px;
+      padding: 40px 24px;
+      border-right: 1px solid var(--color-border);
+      position: sticky;
+      top: 0;
+      height: fit-content;
+      align-self: flex-start;
+      display: none; /* Block on large viewports */
+    }
+
+    @media (min-width: 768px) {
+      .sidebar {
+        display: block;
+      }
+    }
+
+    .toc-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .toc-list {
+      list-style: none;
+    }
+
+    .toc-item {
+      margin-bottom: 10px;
+    }
+
+    .toc-link {
+      color: var(--color-text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 150ms ease;
+    }
+
+    .toc-link:hover {
+      color: var(--color-primary);
+    }
+
+    /* Main Content styling */
+    .content {
+      flex: 1;
+      padding: 40px 48px;
+    }
+
+    @media (max-width: 768px) {
+      .content {
+        padding: 32px 24px;
+      }
+    }
+
+    .section {
+      margin-bottom: 40px;
+      scroll-margin-top: 24px;
+    }
+
+    .section h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--color-text-primary);
+      border-bottom: 1px solid var(--color-divider);
+      padding-bottom: 8px;
+    }
+
+    .section p {
+      font-size: 15px;
+      color: var(--color-text-secondary);
+      margin-bottom: 16px;
+      text-align: justify;
+    }
+
+    .section ul {
+      list-style-type: none;
+      margin-left: 0;
+      margin-bottom: 16px;
+    }
+
+    .section li {
+      position: relative;
+      padding-left: 20px;
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .section li::before {
+      content: "•";
+      position: absolute;
+      left: 6px;
+      color: var(--color-primary);
+      font-weight: bold;
+    }
+
+    /* Callout styling */
+    .callout {
+      background-color: var(--color-callout-bg);
+      border: 1px solid var(--color-callout-border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+      color: var(--color-callout-text);
+    }
+
+    .callout-title {
+      font-weight: 700;
+      font-size: 15px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .callout-body {
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* Table styling */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      margin-bottom: 24px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      background-color: var(--color-bg);
+      color: var(--color-text-primary);
+      font-weight: 600;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--color-border);
+      color: var(--color-text-secondary);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Footer styling */
+    .footer {
+      text-align: center;
+      margin-top: 32px;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+
+    .footer a {
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header">
+      <div class="header-logo">
+        <img class="header-logo-img" src="data:image/png;base64,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" alt="Snabby Logo" />
+        <div class="header-logo-text">Snabby</div>
+      </div>
+      <h1>Privacy Policy</h1>
+      <div class="header-meta">Last Updated: August 20, 2026</div>
+    </div>
+
+    <div class="layout">
+      <!-- Sticky Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="toc-title">Table of Contents</div>
+        <ul class="toc-list">
+          <li class="toc-item"><a class="toc-link" href="#overview">1. Overview</a></li>
+          <li class="toc-item"><a class="toc-link" href="#data-processed">2. Data Processed</a></li>
+          <li class="toc-item"><a class="toc-link" href="#data-use">3. How We Use Data</a></li>
+          <li class="toc-item"><a class="toc-link" href="#local-processing">4. Local Processing</a></li>
+          <li class="toc-item"><a class="toc-link" href="#ocr-processing">5. OCR Processing</a></li>
+          <li class="toc-item"><a class="toc-link" href="#pdf-generation">6. PDF Generation</a></li>
+          <li class="toc-item"><a class="toc-link" href="#data-sharing">7. Data Sharing</a></li>
+          <li class="toc-item"><a class="toc-link" href="#data-retention">8. Retention & Deletion</a></li>
+          <li class="toc-item"><a class="toc-link" href="#permissions">9. Permissions</a></li>
+          <li class="toc-item"><a class="toc-link" href="#security">10. Security</a></li>
+          <li class="toc-item"><a class="toc-link" href="#changes">11. Policy Changes</a></li>
+          <li class="toc-item"><a class="toc-link" href="#contact">12. Contact</a></li>
+        </ul>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="content">
+        
+        <section id="overview" class="section">
+          <h2>1. Overview</h2>
+          <p>
+            Snabby is a browser extension designed for high-resolution web screenshot capture, interactive crop region selections, local offline Optical Character Recognition (OCR), and searchable PDF document generation.
+          </p>
+          <p>
+            We believe that your private data should remain private. Snabby is built from the ground up to operate completely offline. There are no backend servers, no analytics platforms, and no tracking scripts. All data processing, OCR text extraction, PDF compilation, and file storage occur locally on your device inside your web browser.
+          </p>
+        </section>
+
+        <section id="data-processed" class="section">
+          <h2>2. Information Snabby Processes</h2>
+          <p>
+            Snabby only accesses and processes information when you explicitly interact with the extension's features. The processed data categories are:
+          </p>
+          <ul>
+            <li><strong>Captured Webpage Content:</strong> Raw visual screenshots of the webpage viewports or cropped regions that you select. These visual captures may contain webpage text, layouts, images, and other visible elements.</li>
+            <li><strong>OCR Extraction Data:</strong> Locally extracted text layers and word-level coordinate bounding boxes derived from the captured images.</li>
+            <li><strong>Session Metadata:</strong> User-provided session names, timestamps, and order indexes used to organize multiple captures within a current session.</li>
+            <li><strong>User Settings:</strong> Your configured extension settings (such as visible viewport capture vs. crop region capture mode).</li>
+          </ul>
+          <div class="callout">
+            <div class="callout-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              No Browsing History Collection
+            </div>
+            <div class="callout-body">
+              Snabby does not monitor, collect, or store your web browsing history. It only accesses webpage content on active tabs when you explicitly trigger a screenshot capture (via the toolbar UI or keyboard shortcuts).
+            </div>
+          </div>
+        </section>
+
+        <section id="data-use" class="section">
+          <h2>3. How We Use Data</h2>
+          <p>
+            Snabby processes your data solely to deliver its core features. This includes:
+          </p>
+          <ul>
+            <li>Rendering captured screenshots inside Snabby's React UI panel so you can review, sort, or delete them.</li>
+            <li>Running offline OCR text extraction on your captured screenshots.</li>
+            <li>Mapping OCR coordinate structures to place invisible, searchable text layers precisely over the visual screenshots inside the output PDF.</li>
+            <li>Compiling your session captures locally into a final, downloadable PDF.</li>
+          </ul>
+        </section>
+
+        <section id="local-processing" class="section">
+          <h2>4. Local Processing and Storage</h2>
+          <p>
+            Snabby runs completely in your browser context and does not communicate with external backend services.
+          </p>
+          <p>
+            All captured images (Blobs), session metadata, capture details, and OCR results are persisted locally on your computer inside your browser's isolated <strong>IndexedDB database</strong> (named <code>snabby</code>). Your selected settings are stored locally in Chrome's extension-isolated storage (<code>chrome.storage.local</code>). 
+          </p>
+          <p>
+            No data is uploaded to remote servers or shared with any third party.
+          </p>
+        </section>
+
+        <section id="ocr-processing" class="section">
+          <h2>5. OCR Processing</h2>
+          <p>
+            Optical Character Recognition (OCR) is performed entirely inside the local browser application using an isolated background environment.
+          </p>
+          <p>
+            When a screenshot is captured, Snabby's background Service Worker coordinates with an isolated Chrome Offscreen Document to initialize Tesseract.js. The Tesseract worker script, WASM engine, and English language training data (<code>eng.traineddata</code>) are all loaded directly from the local extension package. Text extraction is completed offline, and the resulting coordinates and text are written directly to your local IndexedDB.
+          </p>
+        </section>
+
+        <section id="pdf-generation" class="section">
+          <h2>6. PDF Generation</h2>
+          <p>
+            Searchable PDF generation is performed locally. Snabby uses the <code>pdf-lib</code> library to process your screenshot image files and combine them with the corresponding OCR coordinate records in memory.
+          </p>
+          <p>
+            The final PDF document is constructed by drawing the visual image layer and laying the matching text structure over it at 0% opacity (making it invisible but selectable). The document download is then initiated locally through Chrome's Downloads API. No document compilation takes place on external servers.
+          </p>
+        </section>
+
+        <section id="data-sharing" class="section">
+          <h2>7. Data Sharing</h2>
+          <p>
+            Snabby maintains a strict stance on data isolation:
+          </p>
+          <ul>
+            <li>We do not operate any backend servers; there is no pipeline to receive or store your data.</li>
+            <li>We do not sell, rent, or trade your data or captured content with third parties.</li>
+            <li>We do not track you. Snabby does not contain analytics platforms, telemetry reporters, or profiling tools.</li>
+            <li>We do not use your captured content for advertising, marketing, or tracking.</li>
+          </ul>
+        </section>
+
+        <section id="data-retention" class="section">
+          <h2>8. Data Retention and Deletion</h2>
+          <p>
+            You have complete control over the lifecycle of your local data:
+          </p>
+          <ul>
+            <li><strong>Manual Capture Deletion:</strong> Deleting a single capture from the session grid permanently deletes the capture record, its associated visual screenshot image, and the extracted OCR result from your local IndexedDB database.</li>
+            <li><strong>Session Deletion:</strong> Clicking "End Session" or completing a PDF download automatically terminates the session. This executes a cascade delete transaction that wipes the session record, all related captures, all visual images, and all OCR results from the database.</li>
+            <li><strong>Extension Uninstallation:</strong> Uninstalling Snabby from your browser forces Google Chrome to delete the extension's entire storage partition, including all configuration files and the IndexedDB database.</li>
+          </ul>
+        </section>
+
+        <section id="permissions" class="section">
+          <h2>9. Browser Permissions</h2>
+          <p>
+            Snabby requests specific browser permissions to operate. These permissions and their technical purposes are detailed below:
+          </p>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Permission</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>activeTab</code></td>
+                  <td>Allows the extension to capture a visual screenshot of the current tab's viewport when you trigger a capture.</td>
+                </tr>
+                <tr>
+                  <td><code>scripting</code></td>
+                  <td>Used to inject the crop overlay interface and React panel into target webpages.</td>
+                </tr>
+                <tr>
+                  <td><code>offscreen</code></td>
+                  <td>Allows Snabby to create an Offscreen Document to initialize and run Tesseract.js (which requires DOM/Window objects unavailable in service workers).</td>
+                </tr>
+                <tr>
+                  <td><code>storage</code></td>
+                  <td>Allows the extension to save configuration preferences (such as visible capture vs. crop region mode) locally in the browser.</td>
+                </tr>
+                <tr>
+                  <td><code>unlimitedStorage</code></td>
+                  <td>Ensures Chrome does not block or throttle Snabby from saving high-resolution screenshots and OCR layers locally in your IndexedDB database.</td>
+                </tr>
+                <tr>
+                  <td><code>tabs</code></td>
+                  <td>Used to query tab states, check URLs, and communicate layout changes across multiple tabs.</td>
+                </tr>
+                <tr>
+                  <td><code>downloads</code></td>
+                  <td>Allows the extension to trigger the download prompt to save the compiled searchable PDF directly to your device.</td>
+                </tr>
+                <tr>
+                  <td><code>&lt;all_urls&gt;</code> (Host Permission)</td>
+                  <td>Necessary to allow Snabby's capture and panel injection utilities to run on any webpage you choose to capture.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="security" class="section">
+          <h2>10. Security</h2>
+          <p>
+            By designing Snabby to operate entirely offline, the risk of interception or server-side data breaches is eliminated. The data is secured using the browser's sandbox and origin boundary controls, ensuring that other extensions and websites cannot access Snabby's IndexedDB stores.
+          </p>
+        </section>
+
+        <section id="changes" class="section">
+          <h2>11. Changes to This Privacy Policy</h2>
+          <p>
+            We may update this Privacy Policy from time to time to align with future extension updates or security adjustments. Any changes will be published directly on this page. We encourage you to review this policy periodically to stay informed about Snabby's local data practices.
+          </p>
+        </section>
+
+        <section id="contact" class="section">
+          <h2>12. Contact</h2>
+          <p>
+            If you have questions about Snabby's local processing model or this privacy policy, please contact us at:
+          </p>
+          <p style="font-weight: 500; color: var(--color-text-primary); margin-top: 8px;">
+            Avishkar Chavan<br>
+            Email: <a href="mailto:avishkarc600@gmail.com" style="color: var(--color-primary); text-decoration: none;">avishkarc600@gmail.com</a>
+          </p>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <div class="footer">
+    &copy; 2026 Snabby. Built with privacy in mind.
+  </div>
+
+</body>
 </html>
