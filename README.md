@@ -5,7 +5,7 @@
 ---
 # See How it works
 
-![](demo-1.mp4)
+[▶️ Watch the Snabby Demo](demo-1.mp4)
 
 ## Key Features
 
