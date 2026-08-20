@@ -5,7 +5,7 @@
 ---
 # See How it works
 
-<video controls src="demo.mp4" title="Title"></video>
+<video controls src="demo-1.mp4" title="Title"></video>
 
 ## Key Features
 
