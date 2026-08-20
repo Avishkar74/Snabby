@@ -5,7 +5,7 @@
 ---
 # See How it works
 
-<video controls src="demo-1.mp4" title="Title"></video>
+![](demo-1.mp4)
 
 ## Key Features
 
