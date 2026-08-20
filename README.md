@@ -5,7 +5,7 @@
 ---
 # See How it works
 
-[▶️ Watch the Snabby Demo](demo-1.mp4)
+https://github.com/user-attachments/assets/d35394a7-c694-425a-927e-397b1afd7092
 
 ## Key Features
 
