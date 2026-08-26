@@ -39,7 +39,43 @@ https://github.com/user-attachments/assets/d35394a7-c694-425a-927e-397b1afd7092
 
 ---
 
+## Development & Setup Guide
+
+To run Snabby locally in your browser for development:
+
+### 1. Prerequisites
+Ensure you have the following installed on your machine:
+* [Node.js](https://nodejs.org/) (v18.0.0 or higher recommended)
+* [npm](https://www.npmjs.com/) (usually bundled with Node.js)
+* Google Chrome (or any Chromium-based browser like Brave, Edge, or Opera)
+
+### 2. Install Dependencies
+Clone the repository and install the project dependencies:
+```bash
+git clone https://github.com/Avishkar74/Snabby.git
+cd Snabby
+npm install
+```
+
+### 3. Build the Extension
+Compile the TypeScript code and bundle the React application and assets:
+```bash
+npm run build
+```
+This command runs TypeScript verification (`tsc -b`) and executes Vite/Rollup (`build.mjs`) to generate compile output into the `dist/` directory at the project root.
+
+### 4. Load Snabby in Chrome
+1. Open Google Chrome and navigate to the extensions page by typing **`chrome://extensions/`** in the URL bar.
+2. In the top-right corner, toggle the **Developer mode** switch to **ON**.
+3. In the top-left corner, click the **Load unpacked** button.
+4. Select the **`dist/`** folder located at the root of the project directory.
+
+Once loaded, the Snabby mascot icon will appear in your Chrome toolbar. You can click on the pin icon next to it to pin it for easy access.
+
+---
+
 ## Privacy & Data Use
 - **No Remote Calls**: Snabby operates completely inside the local browser context. 
 - **Local Data Persistence**: Screenshots, session metadata, and extracted OCR text layers are persisted exclusively within the browser's local IndexedDB instance.
 - **Telemetry-Free**: The extension does not collect or transmit tracking data, user telemetry, or page metrics.
+
