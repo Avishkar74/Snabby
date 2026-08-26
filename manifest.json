@@ -45,7 +45,7 @@
     "capture-visible": {
       "suggested_key": {
         "default": "Ctrl+Shift+S",
-        "mac": "Command+Shift+S"
+        "mac": "MacCtrl+Shift+S"
       },
       "description": "Capture visible viewport screenshot"
     }

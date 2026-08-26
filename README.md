@@ -1,4 +1,4 @@
-# <img src="public/icons/icon48.png" width="38" height="38" align="absmiddle" /> Snabby — Chrome Extension
+# <img src="public/icons/icon48.png" width="38" height="38" align="absmiddle" /> [Snabby — Chrome Extension](https://chromewebstore.google.com/detail/odjcldajjjnadphmbphpbpkhgfcilpie?utm_source=item-share-cb)
 
 **Snabby is a modern, lightweight Google Chrome extension designed for high-resolution web screenshot capture, interactive drag-to-crop selection, local offline OCR processing, and searchable PDF generation.**
 
@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/d35394a7-c694-425a-927e-397b1afd7092
 
 - **Multi-Tab Captures**: Capture screenshots across multiple tabs and compile them into a single, unified document.
 - **Crop-Region Capture**: Drag-and-select custom sections of pages. Supports high-DPI scaling using `window.devicePixelRatio`.
-- **Keyboard Shortcuts**: Immediately trigger screenshot captures using `Ctrl + Shift + S` (or `Cmd + Shift + S` on macOS).
+- **Keyboard Shortcuts**: Immediately trigger screenshot captures using `Ctrl + Shift + S`.
 - **100% Offline OCR**: Extracts text from captures using Tesseract.js inside a dedicated Chrome Offscreen Document. Bounding boxes are mapped to word level.
 - **Selectable PDF Output**: Generates PDFs with searchable, selectable, and invisible text layers mapped exactly over the visual screenshot layers.
 - **Isolated Presentation**: React UI mounts inside a Shadow DOM (`#wsn-root`) to guarantee zero style collision with parent web pages.
