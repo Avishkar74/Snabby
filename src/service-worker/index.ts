@@ -403,9 +403,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           for (const s of sessions) {
             await deleteSession.execute(s.id);
           }
-          isActivatedGlobally = false;
           broadcastMessage({ type: 'SESSION_UPDATED' });
-          broadcastMessage({ type: 'ACTIVATION_CHANGED', activated: false });
           return { success: true };
         }
         case 'SET_CAPTURE_MODE': {
@@ -602,11 +600,9 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           // Only terminate the session AFTER a confirmed successful download
           console.log('[Service Worker] PDF downloaded successfully. Ending session:', session.id);
           await deleteSession.execute(session.id);
-          isActivatedGlobally = false;
 
           // Broadcast session state change so React UI refreshes to NewSessionView
           broadcastMessage({ type: 'SESSION_UPDATED' });
-          broadcastMessage({ type: 'ACTIVATION_CHANGED', activated: false });
 
           return { success: true };
         }

@@ -181,11 +181,7 @@ export const App: React.FC = () => {
   }, [isActivatedGlobally]);
 
   // Reset manual activation when session ends (becomes null) so Snabby closes cleanly on all tabs
-  useEffect(() => {
-    if (!session) {
-      setManualActivated(false);
-    }
-  }, [session]);
+  // Removed this effect: we want the floating mascot to REMAIN visible when a session is deleted or exported!
 
   // Reset selected capture (lightbox) when panel is closed
   useEffect(() => {
@@ -249,6 +245,7 @@ export const App: React.FC = () => {
     const success = await startSession(name);
     if (success) {
       await refreshCaptures();
+      closePanel(); // Close panel on session start
     }
     return success;
   };
@@ -268,6 +265,7 @@ export const App: React.FC = () => {
     if (window.confirm('End session? Unsaved captures will be lost.')) {
       await endSession();
       await refreshCaptures();
+      closePanel(); // Close panel on session end/delete
     }
   };
 
@@ -284,6 +282,7 @@ export const App: React.FC = () => {
       try {
         await exportPdf(session.name, skipPendingOcr);
         showToast('PDF downloaded successfully', 'success');
+        closePanel(); // Close panel on PDF export
       } catch {
         showToast('PDF export failed', 'error');
       }
