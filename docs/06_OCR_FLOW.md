@@ -122,85 +122,72 @@ The complete relationship is:
 
 ```text
 AcquiredScreenshot
-   ↓
-Image Processing
-   ↓
-Persi---
+       │
+       ▼
+Image Processing (BrowserImageProcessor)
+       │
+       ▼
+Persisted Capture + ImageAsset (IndexedDB)
+       │
+       ▼
+RunOCR use case (fire-and-forget — not awaited by caller)
+       │
+       ▼
+OCR Service → Offscreen Document → Tesseract.js
+       │
+       ▼
+Normalized OCRResult → IndexedDB
+```
+
+---
 
 # 5. High-Level OCR Flow
 
 ```text
-┌────────────────────────────────────────────────────────┐
-│     CaptureScreenshot (Applies Initial Persistence)    │
-└───────────────────────────┬────────────────────────────┘
-                            ↓
-┌────────────────────────────────────────────────────────┐
-│                        RunOCR                          │
-│  - Transitions Capture.status to PROCESSING            │
-│  - Persists Capture via CaptureRepository              │
-└───────────────────────────┬────────────────────────────┘
-                            ↓
-┌────────────────────────────────────────────────────────┐
-│        TesseractOCRAdapter (Infrastructure)            │
-│  - Converts Blob -> DataURL via FileReader (0-stack)   │
-│  - Calls ChromeMessageBus.request({ target: 'offscreen'})
-└───────────────────────────┬────────────────────────────┘
-                            ↓
-┌────────────────────────────────────────────────────────┐
-│       Service Worker (ensureOffscreenDocument)         │
-│  - Instantiates offscreen.html dynamically if needed   │
-└───────────────────────────┬────────────────────────────┘
-                            ↓
-┌────────────────────────────────────────────────────────┐
-│        Offscreen Document (offscreen.html / ts)        │
-│  - Evaluates CSP: 'wasm-unsafe-eval'                   │
-│  - Invokes TesseractWorker.recognize(dataUrl)          │
-└───────────────────────────┬────────────────────────────┘
-                            ↓
-┌────────────────────────────────────────────────────────┐
-│        TesseractWorker (Local Offline Assets)          │
-│  - workerPath: chrome.runtime.getURL('assets/tesseract/worker.min.js')
-│  - corePath: chrome.runtime.getURL('assets/tesseract') │
-│  - langPath: chrome.runtime.getURL('assets/tesseract') │
-│  - workerBlobURL: false                                │
-└───────────────────────────┬────────────────────────────┘
-                            ↓
-┌────────────────────────────────────────────────────────┐
-│          IndexedDB Multi-Store Persistence             │
-│  - OCRResult saved to 'ocrResults' store in OCRRepo     │
-│  - Capture.status updated to COMPLETED / FAILED in     │
-│    'captures' store in CaptureRepo                     │
-│  - Service Worker broadcasts OCR_COMPLETED / OCR_FAILED│
-└────────────────────────────────────────────────────────┘
-```��──┘
-               ↓
-┌──────────────────────────────┐
-│          Tesseract.js         │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│        Tesseract Worker       │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│       OCR Recognition         │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│      Raw OCR Result           │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│      Result Normalization      │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│       Snabby OCR Result       │
-└──────────────┬───────────────┘
-               ↓
-┌──────────────────────────────┐
-│           IndexedDB           │
-└──────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│     CaptureScreenshot (persists capture, then fires OCR)     │
+└─────────────────────────────┬────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│     RunOCR — Serial Queue (one job at a time)                 │
+│     - Transitions Capture.status → PROCESSING, saves to DB   │
+└─────────────────────────────┬────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│     TesseractOCRAdapter (Infrastructure)                      │
+│     - Blob → DataURL via FileReader (primary)                 │
+│       or chunked arrayBuffer() fallback                       │
+│     - Sends { target: 'offscreen', action: 'ocr', dataUrl }  │
+│       via ChromeMessageBus.request()                          │
+└─────────────────────────────┬────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│     Service Worker — ensureOffscreenDocument()                │
+│     - Creates offscreen.html if not yet instantiated          │
+│     - Guarded by creatingOffscreenPromise singleton           │
+└─────────────────────────────┬────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│     Offscreen Document (offscreen.html / offscreen.ts)        │
+│     - CSP: 'wasm-unsafe-eval'                                 │
+│     - Measures image dimensions via HTMLImageElement          │
+│     - Delegates to TesseractWorker.recognize(dataUrl)         │
+└─────────────────────────────┬────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│     TesseractWorker (Local Offline WASM Assets)               │
+│     - workerBlobURL: false                                    │
+│     - cacheMethod: 'none'  |  gzip: false                    │
+│     - Paths: chrome.runtime.getURL('assets/tesseract/...')    │
+└─────────────────────────────┬────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│     IndexedDB Multi-Store Persistence                         │
+│     - OCRResult → 'ocrResults' store (keyed by captureId)    │
+│     - Capture.status → COMPLETED / FAILED in 'captures'      │
+│     - Service Worker broadcasts OCR_COMPLETED / OCR_FAILED    │
+│       to all extension contexts via broadcastMessage()        │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -1279,23 +1266,77 @@ No OCR result may be attached to the wrong capture.
 
 ---
 
-# 44. OCR Concurrency
+# 44. OCR Concurrency — Serial Queue
 
-OCR is computationally expensive.
+OCR is computationally expensive and Tesseract.js is single-threaded within a web worker.
 
-For v1, OCR runs with a single-lane queue:
+For v1, `RunOCR` enforces a **serial single-lane queue** implemented as a promise chain:
 
-```text
-OCR Queue
-   │
-   ├── Capture 1 → Processing
-   │
-   ├── Capture 2 → Waiting
-   │
-   └── Capture 3 → Waiting
+```ts
+// Inside RunOCR.ts
+private queue: Promise<void> = Promise.resolve();
+
+execute(input: RunOCRInput): Promise<OCRResult> {
+  const task = this.queue.then(() => this._doExecute(input));
+  this.queue = task.then(() => {}, () => {});
+  return task;
+}
 ```
 
-Capture persistence never waits for OCR. Each capture is persisted immediately, then queued for OCR.
+This guarantees that:
+
+```text
+Capture 1 OCR → finishes
+                    ↓
+              Capture 2 OCR → finishes
+                                  ↓
+                            Capture 3 OCR → ...
+```
+
+No two OCR operations run concurrently inside Tesseract. However, **captures are persisted immediately and independently of the OCR queue** — the queue only serializes the recognition step.
+
+---
+
+# 44.5. Fire-and-Forget OCR Dispatch
+
+After a capture is persisted, `CaptureScreenshot` fires OCR **without awaiting the result**:
+
+```text
+CaptureScreenshot.execute()
+       │
+       ├── Persist Capture + Image (awaited)
+       │
+       └── runOCR.execute(input) -- NOT awaited
+       │
+       ▼
+Returns capture to caller immediately
+```
+
+The caller receives the persisted `Capture` object right away. OCR completes asynchronously in the background. When it concludes, the Service Worker's decorated `runOCR.execute` wrapper broadcasts either `OCR_COMPLETED` or `OCR_FAILED` to all extension contexts via `broadcastMessage()`.
+
+---
+
+# 44.6. Service Worker OCR Decorator
+
+The Service Worker decorates `runOCR.execute` at startup to wrap it with offscreen document management and broadcast logic:
+
+```text
+runOCR.execute = async (input) => {
+    1. await ensureOffscreenDocument()
+    2. result = await originalRunOcrExecute(input)
+    3. broadcastMessage({ type: 'OCR_COMPLETED', captureId })
+    return result
+  } catch (err) {
+    broadcastMessage({ type: 'OCR_FAILED', captureId, error })
+    throw err
+  }
+}
+```
+
+The `ensureOffscreenDocument()` function:
+- Checks for an existing offscreen context via `chrome.runtime.getContexts`.
+- Creates `src/infrastructure/ocr/offscreen/offscreen.html` if not present.
+- Is guarded by a `creatingOffscreenPromise` singleton to prevent double-creation on concurrent calls.
 
 ---
 
@@ -2100,36 +2141,26 @@ OCR provides structured text information; PDF generation decides how that inform
 
 ---
 
-# 70. Open Questions
+# 70. Resolved Implementation Details
 
-The following decisions remain for later stages:
+All open questions from the initial design have been resolved. The final decisions are:
 
-1. Exact Tesseract.js version/configuration.
-2. Exact OCR language(s).
-3. Worker reuse strategy.
-4. Tesseract initialization lifecycle.
-5. Whether OCR is sequential or concurrently processed.
-6. Maximum OCR concurrency.
-7. Exact message types.
-8. Exact request/response schemas.
-9. Where result normalization occurs.
-10. Whether progress messages travel through the service worker.
-11. Exact OCR timeout.
-12. Retry limits.
-13. OCR worker cleanup policy.
-14. Exact internal OCR schema.
-15. Exact bounding-box representation.
-16. Confidence precision.
-17. OCR result versioning.
-18. Whether processed images are persisted separately.
-19. Whether OCR results are stored separately from captures or embedded.
-20. How OCR results are invalidated when images change.
-21. How malformed bounding boxes are handled.
-22. Whether OCR text is displayed directly in the UI in v1.
-23. Exact behavior when OCR produces no text.
-24. Exact behavior when OCR fails but PDF generation is requested.
-
-These will be resolved after the storage flow, data schemas, and LLD are designed.
+| Question | Resolution |
+| :--- | :--- |
+| Tesseract.js version | v5 (bundled offline in `assets/tesseract/`) |
+| OCR language | English (`eng`) |
+| Worker reuse strategy | Singleton `TesseractWorker` reused across all OCR jobs per offscreen document session; never explicitly terminated |
+| Tesseract init options | `cacheMethod: 'none'`, `gzip: false`, `workerBlobURL: false` (CSP compliance) |
+| OCR concurrency | Serial queue (one job at a time) in `RunOCR.ts` |
+| Image-to-DataURL conversion | `FileReader` (primary), chunked `arrayBuffer()` (fallback) in `TesseractOCRAdapter` |
+| OCR progress events | Not exposed to React UI — only terminal `OCR_COMPLETED` / `OCR_FAILED` events |
+| Request/response correlation | Handled by Chrome runtime message model (request/response per `chrome.runtime.sendMessage`) |
+| Result normalization location | `TesseractOCRAdapter` normalizes Tesseract output into `OCRResult` domain model |
+| OCR timeout | No application-level hard timeout; Tesseract runs until completion or error |
+| OCR result storage | Separate `ocrResults` IndexedDB store, keyed by `captureId` |
+| Bounding box representation | `{ x, y, width, height }` in image pixel coordinates (top-left origin) |
+| Empty OCR result | Stored as `OCRStatus.COMPLETED` with `fullText: ''` and `words: []` |
+| OCR failure persistence | `errorDetails` string field stored on `OCRResult` in `ocrResults` store |
 
 ---
 

@@ -233,37 +233,42 @@ Its main role is to coordinate extension infrastructure and application workflow
 
 # 8. Service Worker → Offscreen Document
 
-When OCR requires the offscreen environment:
+When OCR is dispatched, the `TesseractOCRAdapter` sends a message **directly** to the Offscreen Document via Chrome runtime messaging with a structured payload:
 
 ```text
-Service Worker
+TesseractOCRAdapter
       │
-      │ OCR_REQUEST
+      │ chrome.runtime.sendMessage({
+      │   target: 'offscreen',
+      │   action: 'ocr',
+      │   dataUrl: <image data URL>
+      │ })
       ▼
 Offscreen Document
 ```
 
-The message contains the information required to perform OCR.
-
-The offscreen document then performs the OCR operation.
+The Offscreen Document filters incoming messages by `message.target === 'offscreen'` to process only messages intended for it.
 
 ---
 
-# 9. Offscreen Document → Service Worker
+# 9. Offscreen Document → Service Worker (Response)
 
-After OCR completes:
+After OCR completes, the Offscreen Document returns the result via the Chrome `sendResponse` callback on the same `onMessage` listener:
 
 ```text
 Offscreen Document
       │
-      │ OCR_RESULT
+      │ sendResponse({
+      │   words: OCRWord[],
+      │   fullText: string,
+      │   imageWidth: number,
+      │   imageHeight: number
+      │ })
       ▼
-Service Worker
+TesseractOCRAdapter (awaiting ChromeMessageBus.request())
 ```
 
-The result is then passed back into the application workflow.
-
-The response should be correlated with the original request.
+The Chrome runtime pairs the response to the original request automatically via its internal request/response model. No application-level `requestId` is needed for this boundary.
 
 ---
 
@@ -520,37 +525,40 @@ The service worker coordinates the extension-specific part, while application se
 
 # 18. Example: OCR Communication
 
+The actual v1 OCR communication flow:
+
 ```text
-Application
+CaptureScreenshot (fires OCR fire-and-forget)
      │
      ▼
-OCR Service
+RunOCR Serial Queue
      │
      ▼
-Service Worker
-     │
-     │ OCR_REQUEST
-     ▼
-Offscreen Document
+Service Worker decorator: await ensureOffscreenDocument()
      │
      ▼
-Tesseract
+TesseractOCRAdapter
+     │  chrome.runtime.sendMessage({
+     │    target: 'offscreen', action: 'ocr', dataUrl
+     │  })
+     ▼
+Offscreen Document: Tesseract.recognize(dataUrl)
      │
-  └── result / error
+     ▼ [sendResponse on same message]
+TesseractOCRAdapter receives { words, fullText, imageWidth, imageHeight }
      │
      ▼
-Offscreen Document
-     │
-  │ OCR_RESULT / OCR_ERROR
-     ▼
-Service Worker
+RunOCR normalizes into OCRResult
      │
      ▼
-OCR Result Normalizer
+OCRRepository.save(result) + CaptureRepository.updateStatus(COMPLETED)
      │
      ▼
-IndexedDB
+Service Worker decorator broadcasts:
+broadcastMessage({ type: 'OCR_COMPLETED', captureId }) to all tabs/views
 ```
+
+**On failure**, the decorator broadcasts `{ type: 'OCR_FAILED', captureId, error }` instead.
 
 ---
 
@@ -769,14 +777,14 @@ A different implementation of an infrastructure adapter can theoretically be int
 
 ---
 
-# 28. Remaining Implementation Questions
+# 28. Remaining Implementation Details
 
-The following are implementation details that remain for LLD/code-level design:
+The following implementation details are finalized:
 
-1. Listener registration and cleanup patterns.
-2. Internal offscreen payload transport details for large image data.
-3. Whether a centralized message router utility is introduced.
-4. Concrete error-code taxonomy values under the standardized error envelope.
+1. **Listener registration**: The Service Worker uses `chrome.runtime.onMessage.addListener`. The Offscreen Document uses the same API, filtering by `message.target === 'offscreen'`. React uses `chrome.runtime.onMessage.addListener` for event broadcasts.
+2. **Image data transport**: The `TesseractOCRAdapter` converts the image Blob to a DataURL inside the Service Worker and sends it to the Offscreen Document via `chrome.runtime.sendMessage`. No shared memory API is used.
+3. **Message routing**: The Service Worker acts as a message router. React-originated commands are dispatched to use case handlers. Broadcasts are sent to all contexts via `broadcastMessage()` (iterates over `chrome.runtime.getContexts` and sends to each).
+4. **Error codes**: Errors are thrown as domain exceptions (`DomainError`, `ValidationError`, `SessionNotFoundError`, etc.) and serialized to a `{ type, message }` envelope when crossing the messaging boundary.
 
 ---
 

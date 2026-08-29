@@ -10,6 +10,7 @@ We will keep three concepts separate:
 
 ```text
 The domain model design, TypeScript interfaces, and IndexedDB schemas are finalized and implemented.
+```
 
 ---
 
@@ -227,7 +228,8 @@ OCRResult
 ├── fullText
 ├── words
 ├── imageWidth
-└── imageHeight
+├── imageHeight
+└── errorDetails (optional — populated when status is FAILED)
 ```
 
 Conceptually:
@@ -240,6 +242,7 @@ OCRResult {
     words: OCRWord[]
     imageWidth: number
     imageHeight: number
+    errorDetails?: string
 }
 ```
 
@@ -247,17 +250,17 @@ OCRResult {
 
 # 10. OCR Status
 
-OCR should have an explicit lifecycle:
+OCR has an explicit lifecycle with these terminal states:
 
 ```text
 OCRStatus
-├── NOT_STARTED
-├── PROCESSING
-├── COMPLETED
-└── FAILED
+├── PENDING     (initial state when capture is first persisted)
+├── PROCESSING  (OCR job is actively running in offscreen document)
+├── COMPLETED   (OCR succeeded; fullText and words are populated)
+└── FAILED      (OCR failed; errorDetails string is populated)
 ```
 
-Snabby v1 keeps error details out of persistent database records, logging them or throwing custom DomainError exceptions instead.
+`PENDING` and `PROCESSING` are stored on `Capture.status`. `COMPLETED` and `FAILED` are terminal states stored on both `Capture.status` and `OCRResult.status`. The `errorDetails` field on `OCRResult` contains the error message when `status = FAILED`.
 
 ---
 

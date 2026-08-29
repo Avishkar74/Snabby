@@ -220,23 +220,15 @@ Calculate page position
 Draw image
 ```
 
-A typical contain-style calculation is:
+In Snabby v1 (scale = 1.0 policy), the image is always drawn at natural resolution with a 10pt border. The typical contain-scale formula shown below was evaluated but **is not used in v1**:
 
 ```text
 scaleX = pageWidth / imageWidth
 scaleY = pageHeight / imageHeight
-
-scale = min(scaleX, scaleY)
+scale  = min(scaleX, scaleY)
 ```
 
-Then:
-
-```text
-renderedWidth  = imageWidth × scale
-renderedHeight = imageHeight × scale
-```
-
-Whether Snabby uses this exact strategy will be confirmed against the existing implementation.
+Instead, v1 sets `scale = 1.0` and expands the page to fit the image.
 
 ---
 
@@ -817,11 +809,14 @@ OCR bounding boxes `(x_img, y_img, w_img, h_img)` (with top-left origin) are map
 - `y_pdf = imgBottom + (imageHeight - y_img - h_img) * scale`
 
 ### Decision 9 — OCR Text Overlay Strategy
-Text is drawn on top of the screenshot using `pdf-lib`'s `drawText` with `opacity: 0` (invisible selectable text) at word-level to allow selection and searching without visual duplication. Font size is set to `h_pdf` (embedded StandardFonts.Helvetica).
+Text is drawn word-by-word on top of the screenshot using `pdf-lib`'s `drawText` with **`opacity: 0`** (completely invisible, but selectable and searchable). Font is embedded as **`StandardFonts.Helvetica`** via `pdfDoc.embedFont(StandardFonts.Helvetica)`. Font size is set to `h_pdf` (the transformed word height) to align text geometry with the screenshot.
+
+### Decision 9.1 — PDF Document Title
+The generated PDF document title is set to `session.name` via `pdfDoc.setTitle(session.name)` for metadata attribution.
 
 ### Decision 10 — OCR Status & skipPendingOcr Behavior
-- **`skipPendingOcr = false`**: The GeneratePDF usecase polls `OCRRepository` every 500ms until all session captures are in a terminal state (`COMPLETED` or `FAILED`). If any capture's OCR is `PENDING`/`PROCESSING`, it waits.
-- **`skipPendingOcr = true`**: Usecase compiles the PDF immediately. Captures with completed OCR get the selectable overlay; captures with pending or failed OCR are rendered as image-only pages.
+- **`skipPendingOcr = false`**: The `GeneratePDF` use case polls `OCRRepository.findByCaptureId()` every **500ms** up to **60 retries** (= **30 seconds max**) until all captures in the session have a terminal OCR state (`COMPLETED` or `FAILED`). If a capture's OCR record doesn't yet exist or its status is `PENDING`/`PROCESSING`, the poller waits. After 60 retries the timeout expires and generation proceeds with whatever state is available.
+- **`skipPendingOcr = true`**: The use case compiles the PDF immediately without any polling. Captures with completed OCR get the selectable overlay; captures with pending or failed OCR are rendered as image-only pages.
 
 ### Decision 11 — Memory Strategy
 Captures are processed one at a time. The image binary is loaded, embedded into the PDF document, and intermediate ArrayBuffer/Blob resources are immediately released for garbage collection.

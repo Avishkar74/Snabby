@@ -167,14 +167,14 @@ PDF Generation
 Completed / Retained
 ```
 
-For v1, the lifecycle rules are explicit:
+For v1, the lifecycle rules are:
 
 ```text
 1) Exactly one session is active at a time.
-2) Extension/browser restart restores the existing active session.
-3) Starting a new session marks the previous active session inactive.
-4) Sessions are not auto-deleted after export.
-5) Empty sessions are retained until explicit user deletion.
+2) Extension/browser restart restores the existing active session (loaded from IndexedDB on next GET_SESSION).
+3) Starting a new session while one exists triggers a SESSION_ACTIVE error; the user must explicitly confirm overwrite (CONFIRM_OVERWRITE), which DELETES the old session and all its captures.
+4) A session is automatically DELETED (not retained) after a successful PDF download.
+5) Empty sessions are retained until the user deletes them or a new session overwrites them.
 ```
 
 ---
@@ -792,32 +792,19 @@ If none exists, create one and mark it ACTIVE.
 
 # 26. Session Status
 
-A session may require a lifecycle status.
+In v1, the `Session` domain entity does **not** carry a persistent lifecycle status field.
 
-Conceptually:
+The `Session` record in IndexedDB contains only:
 
-```text id="w7f1xq"
+```text
 Session
-   │
-   └── Status
+   ├── id
+   ├── name
+   ├── createdAt
+   └── updatedAt
 ```
 
-Potential conceptual states include:
-
-```text id="3q5m84"
-ACTIVE
-READY
-GENERATING_PDF
-COMPLETED
-```
-
-However, we should not create states simply because they sound useful.
-
-The final state machine will be derived from actual requirements.
-
-In particular, PDF-generation state may be application/UI state rather than persistent session state.
-
-This distinction will be resolved during the LLD.
+"Active" status is implied by **existence**: whichever session is present in the `sessions` IndexedDB store is the active session. PDF-generation state (e.g. `GENERATING_PDF`) is transient UI state managed in React, not persisted to IndexedDB.
 
 ---
 
@@ -1394,9 +1381,9 @@ OCR belongs to the capture-processing pipeline.
 
 PDF generation consumes the session.
 
-### Decision 7 — One active session at a time
+### Decision 7 — One active session at a time, deleted on export
 
-At any time, only one session can be ACTIVE. Creating a new session transitions the previous ACTIVE session to INACTIVE.
+At any given time only one session may exist in the `sessions` IndexedDB store. Attempting to start a second session while one exists returns a `SESSION_ACTIVE` error. Upon a confirmed, successful PDF download, the active session is automatically deleted via `deleteSession.execute(session.id)`. Upon `CONFIRM_OVERWRITE`, all existing sessions are deleted before the new one is created.
 
 ### Decision 8 — Session Lifecycle & Termination Policy
 

@@ -804,25 +804,31 @@ It remains an extension lifecycle event rather than an application/session comma
 
 The service worker communicates with the offscreen document separately from the React ↔ Service Worker protocol.
 
-These messages use:
+These messages use a discriminated object with a `target` field:
 
 ```ts
 {
   target: "offscreen",
-  action: ...
+  action: string,
+  ...payload
 }
 ```
 
-The current offscreen implementation supports:
+The offscreen document filters incoming messages by `message.target === 'offscreen'`.
+
+The **v1-active** offscreen actions are:
 
 ```text
-ocr
-normalize
-thumbnail
-ping
+ocr      ← primary action, used by TesseractOCRAdapter
+ping     ← infrastructure health check
 ```
 
+The following actions exist in the codebase but are **not currently dispatched in v1** (retained for completeness):
 
+```text
+normalize
+thumbnail
+```
 
 ---
 
@@ -871,20 +877,39 @@ This matches the actual offscreen OCR contract.
 
 # 26. OCR Word Schema
 
+The **raw** offscreen response contains Tesseract-format bounding boxes:
+
 ```ts
-type OCRWord = {
+// Returned by the offscreen document (Tesseract raw format)
+type OffscreenOCRWord = {
   text: string,
   confidence: number,
   bbox: {
-    x0: number,
-    y0: number,
-    x1: number,
-    y1: number
+    x0: number,  // left
+    y0: number,  // top
+    x1: number,  // right
+    y1: number   // bottom
   }
 }
 ```
 
-The current implementation flattens Tesseract's block → paragraph → line → word hierarchy into this word-level structure. 
+The `TesseractOCRAdapter` **normalizes** this into the domain `OCRWord` format before saving:
+
+```ts
+// Domain model (stored in IndexedDB)
+type OCRWord = {
+  text: string,
+  confidence: number,
+  boundingBox: {
+    x: number,       // = bbox.x0
+    y: number,       // = bbox.y0
+    width: number,   // = bbox.x1 - bbox.x0
+    height: number   // = bbox.y1 - bbox.y0
+  }
+}
+```
+
+The conversion from raw `x0/y0/x1/y1` to `x/y/width/height` happens in the adapter, not in the offscreen document. This keeps Tesseract internals out of the domain model. 
 
 ---
 

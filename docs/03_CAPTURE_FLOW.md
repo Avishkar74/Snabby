@@ -41,42 +41,33 @@ The capture subsystem should not decide how OCR or PDF generation works.
 
 # 3. Capture Entry Points
 
-For v1, the primary entry point is the keyboard shortcut.
+For v1, there are **two** capture entry points.
+
+### Entry Point 1 — Keyboard Shortcut (`capture-visible` command)
 
 ```text
-Windows / Linux
-
-Ctrl + Shift + S
+Windows / Linux:  Ctrl + Shift + S
+macOS:            Cmd  + Shift + S
 ```
 
-```text
-macOS
+Handled by `chrome.commands.onCommand` in the Service Worker. Reads the current session and the saved `Settings.mode` to determine capture mode.
 
-Cmd + Shift + S
-```
+### Entry Point 2 — React Popup (`CAPTURE_REQUEST` message)
 
-The high-level flow is:
+When the user clicks the capture button inside the Snabby popup, React sends a `CAPTURE_REQUEST` message to the Service Worker. The Service Worker follows the same capture pipeline as the keyboard shortcut.
 
 ```text
-User
- │
- │ Keyboard Shortcut
- ▼
-Chrome Command
- │
- ▼
+User (popup button)
+       │
+       │ CAPTURE_REQUEST message
+       ▼
 Service Worker
- │
- ▼
-Capture Request
- │
- ▼
-Capture Active Tab
+       │
+       ▼
+Capture Pipeline (same as shortcut)
 ```
 
-The shortcut is therefore only the **trigger**.
-
-The actual screenshot capture is performed through the extension's capture pipeline.
+Both entry points share the same `captureMode` resolution logic and invoke `CaptureScreenshot.execute()`.
 
 ---
 
@@ -143,7 +134,7 @@ The request schema is defined by the input properties of the capture use case.
 
 # 6. Keyboard Shortcut Flow
 
-The keyboard shortcut is registered as a Chrome extension command.
+The keyboard shortcut is registered as a Chrome extension command (`capture-visible`).
 
 The flow is:
 
@@ -154,27 +145,102 @@ Keyboard
 Chrome
    │
    ▼
-Extension Command
+Extension Command (`capture-visible`)
    │
    ▼
-Service Worker Event Handler
+Service Worker `chrome.commands.onCommand` listener
+   │
+   ├── Guard: `isCapturing` mutex — skip if already capturing
+   ├── Require active session (show `SHOW_TOAST` if none)
+   ├── Read `Settings.mode` → resolve `captureMode`
    │
    ▼
-Capture Use Case
+Capture Use Case (`CaptureScreenshot.execute`)
 ```
 
-The service worker acts as the bridge between the browser's extension command system and Snabby's application capture flow.
+The handler remains lightweight. It delegates all business logic to `CaptureScreenshot` and the infrastructure adapters.
 
-The command handler should remain small.
+---
 
-It should primarily:
+# 6.5. The `isCapturing` Mutex
 
-1. Receive the command.
-2. Determine the relevant tab.
-3. Invoke the capture operation.
-4. Handle/report errors.
+To prevent concurrent captures (e.g. from rapid repeated shortcut presses), the Service Worker maintains a module-level boolean flag:
 
-It should not contain the entire capture implementation.
+```text
+let isCapturing = false;
+```
+
+Before any capture begins — from either the keyboard shortcut or the `CAPTURE_REQUEST` message handler — the flag is checked:
+
+```text
+if (isCapturing) → reject / ignore the request
+```
+
+If the flag is clear, it is set to `true` and the capture pipeline begins. The flag is cleared in a `finally` block to guarantee release on both success and error paths.
+
+This prevents race conditions between overlapping capture operations.
+
+---
+
+# 6.6. CROP_REGION Mode — Overlay Injection
+
+When `Settings.mode === 'REGION'`, the capture mode is `CROP_REGION`. This mode requires user interaction to select a region before the screenshot is taken.
+
+## CROP_REGION Flow
+
+```text
+captureMode = CROP_REGION
+       │
+       ▼
+Query active tab (chrome.tabs.query)
+       │
+       ▼
+Inject runCropOverlayInPage into tab (MAIN world)
+chrome.scripting.executeScript({ world: 'MAIN' })
+       │
+       ▼
+User drags to select region
+       │
+   ┌───┴───────────────┐
+   │                   │
+Cancelled (Esc)    Selection confirmed
+(width < 10 ||     (CropRect returned)
+ height < 10)
+   │                   │
+   ▼                   ▼
+Return               captureAdapter.setCropRect(rect)
+{ cancelled: true }        │
+                           ▼
+                   CaptureScreenshot.execute()
+```
+
+## `runCropOverlayInPage` Function
+
+This function is **injected directly into the active tab's page** as a self-contained script (via `chrome.scripting.executeScript`). It must not reference any outer service worker scope.
+
+Behavior:
+
+1. Creates a full-screen fixed `div` overlay (`z-index: 2147483646`) with a semi-transparent dark background (`rgba(0,0,0,0.4)`) and a crosshair cursor.
+2. Displays a hint text: `"Drag to select a region · Esc to cancel"`.
+3. On `mousedown`: starts drag selection, renders a white-bordered selection box.
+4. On `mousemove`: updates the selection box dimensions.
+5. On `mouseup`: if the selected area is ≥ 10×10 CSS pixels, returns a `CropRect` scaled by `window.devicePixelRatio` to match screenshot pixel coordinates.
+6. On `keydown (Esc)`: cancels and resolves `{ cancelled: true }`.
+7. Prevents double-injection via an `id="wsn-crop-overlay"` guard.
+
+### CropRect
+
+```ts
+// Coordinates are in screenshot-pixel space (CSS pixels × devicePixelRatio)
+{
+  x:      number;
+  y:      number;
+  width:  number;
+  height: number;
+}
+```
+
+After the overlay resolves, `ChromeCaptureAdapter.setCropRect(rect)` stores the region. `chrome.tabs.captureVisibleTab()` then takes a full-viewport screenshot, and `ChromeCaptureAdapter` crops it to the specified region before returning the `AcquiredScreenshot`.
 
 ---
 
@@ -194,7 +260,9 @@ Get Active Tab
 Active Tab
 ```
 
-The tab may provide information such as:
+The active tab is identified automatically by Chrome when `chrome.tabs.captureVisibleTab()` is called (for `FULL_SCREEN` mode). For `CROP_REGION` mode, the active tab is explicitly queried via `chrome.tabs.query({ active: true, currentWindow: true })` to determine where to inject the overlay.
+
+The tab provides context such as:
 
 ```text
 Tab
@@ -1203,10 +1271,13 @@ The following decisions are now finalized:
    - Infrastructure database failures (`DatabaseError`)
    - Application capture failures (`CaptureError` extending native `Error` defined in the application layer)
 7. **Chrome Screenshot API**: Finalized as `chrome.tabs.captureVisibleTab()` without `windowId`, targeting the active viewport of the current window.
-8. **Permissions**: Finalized as `activeTab`.
-9. **Active-Tab Resolution**: Handled natively by Chrome capture API; no separate `ActiveTabProvider` application interface is required.
+8. **Permissions**: Finalized as `activeTab` (and `scripting` for crop overlay injection).
+9. **Active-Tab Resolution**: Handled natively by Chrome capture API for `FULL_SCREEN`; explicitly queried via `chrome.tabs.query` for `CROP_REGION` overlay injection.
 10. **FULL_SCREEN Viewport**: Maps directly to the visible viewport of the active tab (not the entire scrollable webpage).
 11. **Image Representation**: Data URL string from Chrome API converted directly into a binary `Blob` inside `ChromeCaptureAdapter`.
+12. **CROP_REGION Mode**: Region selection is implemented by injecting a self-contained `runCropOverlayInPage` function into the MAIN world of the active tab via `chrome.scripting.executeScript`. The returned `CropRect` (in screenshot-pixel space) is passed to `ChromeCaptureAdapter.setCropRect()` before the capture is taken.
+13. **Concurrency Guard**: A module-level `isCapturing` boolean mutex prevents concurrent capture operations from both the keyboard shortcut and the `CAPTURE_REQUEST` message handler.
+14. **CROP_REGION Cancellation**: If the user presses Esc or draws a selection smaller than 10×10 CSS pixels, the capture is silently aborted. The `CAPTURE_REQUEST` handler returns `{ success: true, data: { capture: null, cancelled: true } }` rather than an error.
 
 ## 38.2 Open Questions and Implementation Resolution
 

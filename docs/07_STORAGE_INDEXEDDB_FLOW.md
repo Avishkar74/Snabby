@@ -351,50 +351,39 @@ These entities are separated into dedicated stores in our final schema.
 
 # 12. Sessions Store
 
-The session store conceptually contains:
+The `sessions` object store contains the session entity:
 
 ```text
-Session
-│
-├── id
-├── createdAt
-├── updatedAt
-├── status / lifecycle data
-└── session metadata
+Session (keyPath: 'id')
+├── id        (string — UUID)
+├── name      (string)
+├── createdAt (ISO timestamp string)
+└── updatedAt (ISO timestamp string)
 ```
 
-It is responsible for persistent session information.
+There is **no persistent `status` field**. "Active" means the session exists in this store. Exactly one session exists at a time.
 
-It should not contain large image binaries unless the final schema demonstrates a strong reason to do so.
+The store is not responsible for large binary data.
 
 ---
 
 # 13. Captures Store
 
-The capture store conceptually contains:
+The `captures` object store contains the capture entity:
 
 ```text
-Capture
-│
-├── id
-├── sessionId
-├── order
-├── source metadata
-├── capturedAt
-├── image reference
-├── OCR state
-└── processing state
+Capture (keyPath: 'id')
+├── id           (string — UUID)
+├── sessionId    (string — FK to sessions store)
+├── imageId      (string — FK to images store)
+├── order        (number — determines PDF page order)
+├── source       ('FULL_SCREEN' | 'CROP_REGION')
+├── status       ('PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' — OCR status of this capture)
+├── errorDetails (string? — error message if status is FAILED)
+└── createdAt    (ISO timestamp string)
 ```
 
-The capture represents the relationship between:
-
-```text
-Session
-   +
-Screenshot
-   +
-Processing state
-```
+**Index**: A compound index `sessionId_order` on `['sessionId', 'order']` is created to enable efficient sorted retrieval of all captures for a given session via `IDBKeyRange.bound()`. This is the primary access pattern used by `IndexedDBCaptureRepository.findBySessionId()`.
 
 ---
 
@@ -533,27 +522,29 @@ Therefore, the storage model must not require a successful OCR result for a capt
 
 # 18. Capture Persistence Flow
 
-When a screenshot is captured:
+When a screenshot is captured, a dedicated **`IndexedDBCapturePersistenceService`** handles atomic persistence:
 
 ```text
-Screenshot
-    │
-    ▼
-Create Capture
-    │
-    ▼
-Persist Image
-    │
-    ▼
-Persist Capture Metadata
-    │
-    ▼
-Session Updated
+Screenshot (Blob)
+     │
+     ▼
+IndexedDBCapturePersistenceService.save(capture, imageAsset)
+     │
+     ▼
+Single multi-store IndexedDB transaction ['captures', 'images']
+     ├── Write ImageAsset to 'images' store
+     └── Write Capture metadata to 'captures' store
+     │
+     ▼
+Commit → both records persisted
+     │
+     ▼
+Session Updated (in-memory)
 ```
 
-The capture order and transaction strategies are implemented in `IndexedDBCaptureRepository.ts` and `IndexedDBSessionRepository.ts`.
+The **`sessions` store is NOT part of this atomic transaction**. The `IndexedDBCapturePersistenceService` is responsible for Capture + Image atomicity only. Either both are written successfully, or neither is committed, preventing orphaned image assets.
 
-The important requirement is that the application must not report the capture as safely persisted if the required persistent operation has failed.
+The service is implemented in `src/infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts`.
 
 ---
 
@@ -694,39 +685,46 @@ We will choose this during schema/LLD design.
 
 # 23. Delete Capture Flow
 
-Deleting a capture may require cleanup of related records.
-
-Conceptually:
+`IndexedDBCaptureRepository.delete(captureId)` performs a **cascade delete** atomically across three stores in a single `readwrite` transaction:
 
 ```text
-Delete Capture
-      │
-      ├── Delete Capture
-      ├── Delete Image
-      ├── Delete OCR Result
-      └── Update Session Ordering
+Delete Capture (captureId)
+       │
+       ▼
+Single IndexedDB transaction ['captures', 'images', 'ocrResults']
+       ├── Delete from 'captures' store (by captureId)
+       ├── Delete from 'images' store (by capture.imageId)
+       └── Delete from 'ocrResults' store (by captureId)
+       │
+       ▼
+Commit → no orphaned records remain
 ```
 
-The final operation should leave no invalid references.
+This cascade ensures that deleting a capture never leaves an orphaned image blob or orphaned OCR result.
 
 ---
 
-# 24. Delete Transaction
+# 24. Delete Session Flow (Cascade)
 
-Ideally:
+`IndexedDBSessionRepository.delete(sessionId)` performs a **full cascade delete** of an entire session in a single `readwrite` transaction across all four stores:
 
 ```text
-Delete Operation
-      │
-      ├── Capture removed
-      ├── Image removed
-      ├── OCR removed
-      └── Session ordering updated
+Delete Session (sessionId)
+       │
+       ▼
+Single IndexedDB transaction ['sessions', 'captures', 'images', 'ocrResults']
+       ├── Find all captures for session (by sessionId index)
+       ├── For each capture:
+       │     ├── Delete from 'images' (by imageId)
+       │     └── Delete from 'ocrResults' (by captureId)
+       ├── Delete all captures from 'captures' (by sessionId)
+       └── Delete from 'sessions' (by sessionId)
+       │
+       ▼
+Commit → session + all captures + images + OCR results removed
 ```
 
-should either complete consistently or fail without leaving partially applied application state.
-
-This is an important IndexedDB transaction boundary.
+This is the implementation behind both `CONFIRM_OVERWRITE` (delete old session before creating new) and the post-export auto-delete after a successful PDF download.
 
 ---
 
