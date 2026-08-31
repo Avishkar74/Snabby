@@ -37,6 +37,9 @@ export class Page implements IPageProps {
   }
 
   public get effectiveRenderedImageId(): ImageId {
+    if (this.type === PageType.CUSTOM) {
+      return this.renderedImageId!;
+    }
     return this.renderedImageId ?? (this.imageId as ImageId);
   }
 
@@ -47,8 +50,19 @@ export class Page implements IPageProps {
     if (!this.sessionId) {
       throw new ValidationError('Session ID is required');
     }
-    if (this.type === PageType.SCREENSHOT && !this.imageId) {
-      throw new ValidationError('Original Image ID is required for screenshot pages');
+    if (this.type === PageType.SCREENSHOT) {
+      if (!this.imageId) {
+        throw new ValidationError('Original Image ID is required for screenshot pages');
+      }
+    } else if (this.type === PageType.CUSTOM) {
+      if (this.imageId) {
+        throw new ValidationError('Original Image ID must be null or absent for custom pages');
+      }
+      if (!this.renderedImageId) {
+        throw new ValidationError('Rendered Image ID is required for custom pages');
+      }
+    } else {
+      throw new ValidationError(`Invalid page type: ${this.type}`);
     }
     if (this.order < 0) {
       throw new ValidationError('Page order must be a non-negative number');
@@ -61,9 +75,6 @@ export class Page implements IPageProps {
     }
     if (!Object.values(ProcessingStatus).includes(this.status)) {
       throw new ValidationError(`Invalid processing status: ${this.status}`);
-    }
-    if (!Object.values(PageType).includes(this.type)) {
-      throw new ValidationError(`Invalid page type: ${this.type}`);
     }
     if (this.version <= 0) {
       throw new ValidationError('Page version must be positive');
@@ -86,27 +97,6 @@ export class Page implements IPageProps {
       source,
       createdAt: createTimestamp(),
       status: ProcessingStatus.PENDING,
-      version: 1,
-    });
-  }
-
-  public static createCustom(
-    sessionId: SessionId,
-    renderedImageId: ImageId,
-    order: number,
-    annotationData?: string
-  ): Page {
-    return new Page({
-      id: createPageId(),
-      sessionId,
-      type: PageType.CUSTOM,
-      imageId: null,
-      renderedImageId,
-      order,
-      source: null,
-      createdAt: createTimestamp(),
-      status: ProcessingStatus.PENDING,
-      annotationData,
       version: 1,
     });
   }
