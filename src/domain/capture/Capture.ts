@@ -1,97 +1,78 @@
-import type { CaptureId, SessionId, ImageId } from '../common/ids.ts';
-import type { Timestamp } from '../common/timestamps.ts';
-import { createCaptureId } from '../common/ids.ts';
-import { createTimestamp } from '../common/timestamps.ts';
-import { ValidationError } from '../common/errors.ts';
+import type { SessionId, ImageId } from '../common/ids.ts';
+import { Page } from '../page/Page.ts';
+import { PageType, PageSource, ProcessingStatus } from '../page/page.types.ts';
 import type { ICaptureProps } from './capture.types.ts';
-import { CaptureSource, ProcessingStatus } from './capture.types.ts';
 
-export class Capture implements ICaptureProps {
-  public readonly id: CaptureId;
-  public readonly sessionId: SessionId;
-  public readonly imageId: ImageId;
-  public readonly order: number;
-  public readonly source: CaptureSource;
-  public readonly createdAt: Timestamp;
-  public readonly status: ProcessingStatus;
-  public readonly errorDetails?: string;
+export class Capture extends Page {
+  public override readonly imageId: ImageId;
+  public override readonly source: PageSource;
 
   constructor(props: ICaptureProps) {
-    this.id = props.id;
-    this.sessionId = props.sessionId;
+    super({
+      ...props,
+      type: props.type ?? PageType.SCREENSHOT,
+      renderedImageId: props.renderedImageId ?? props.imageId,
+      source: props.source ?? PageSource.FULL_SCREEN,
+      version: props.version ?? 1,
+    });
     this.imageId = props.imageId;
-    this.order = props.order;
-    this.source = props.source;
-    this.createdAt = props.createdAt;
-    this.status = props.status;
-    this.errorDetails = props.errorDetails;
-    this.validate();
+    this.source = props.source ?? PageSource.FULL_SCREEN;
   }
 
-  private validate(): void {
-    if (!this.id) {
-      throw new ValidationError('Capture ID is required');
-    }
-    if (!this.sessionId) {
-      throw new ValidationError('Session ID is required');
-    }
-    if (!this.imageId) {
-      throw new ValidationError('Image ID is required');
-    }
-    if (this.order < 0) {
-      throw new ValidationError('Capture order must be a non-negative number');
-    }
-    if (!Object.values(CaptureSource).includes(this.source)) {
-      throw new ValidationError(`Invalid capture source: ${this.source}`);
-    }
-    if (this.createdAt <= 0) {
-      throw new ValidationError('Capture createdAt timestamp must be positive');
-    }
-    if (!Object.values(ProcessingStatus).includes(this.status)) {
-      throw new ValidationError(`Invalid processing status: ${this.status}`);
-    }
-  }
-
-  public static create(
+  public static override create(
     sessionId: SessionId,
     imageId: ImageId,
     order: number,
-    source: CaptureSource = CaptureSource.FULL_SCREEN
+    source: PageSource = PageSource.FULL_SCREEN
   ): Capture {
+    const page = Page.create(sessionId, imageId, order, source);
     return new Capture({
-      id: createCaptureId(),
-      sessionId,
-      imageId,
-      order,
-      source,
-      createdAt: createTimestamp(),
-      status: ProcessingStatus.PENDING,
+      id: page.id,
+      sessionId: page.sessionId,
+      type: page.type,
+      imageId: page.imageId!,
+      renderedImageId: page.renderedImageId,
+      order: page.order,
+      source: (page.source as PageSource) ?? PageSource.FULL_SCREEN,
+      createdAt: page.createdAt,
+      status: page.status,
+      version: page.version,
     });
   }
 
-  public updateStatus(status: ProcessingStatus, errorDetails?: string): Capture {
+  public override updateStatus(status: ProcessingStatus, errorDetails?: string): Capture {
+    const updated = super.updateStatus(status, errorDetails);
     return new Capture({
-      id: this.id,
-      sessionId: this.sessionId,
+      id: updated.id,
+      sessionId: updated.sessionId,
+      type: updated.type,
       imageId: this.imageId,
-      order: this.order,
+      renderedImageId: updated.renderedImageId,
+      order: updated.order,
       source: this.source,
-      createdAt: this.createdAt,
-      status,
-      errorDetails,
+      createdAt: updated.createdAt,
+      status: updated.status,
+      errorDetails: updated.errorDetails,
+      annotationData: updated.annotationData,
+      version: updated.version,
     });
   }
 
-  public reorder(newOrder: number): Capture {
+  public override reorder(newOrder: number): Capture {
+    const updated = super.reorder(newOrder);
     return new Capture({
-      id: this.id,
-      sessionId: this.sessionId,
+      id: updated.id,
+      sessionId: updated.sessionId,
+      type: updated.type,
       imageId: this.imageId,
-      order: newOrder,
+      renderedImageId: updated.renderedImageId,
+      order: updated.order,
       source: this.source,
-      createdAt: this.createdAt,
-      status: this.status,
-      errorDetails: this.errorDetails,
+      createdAt: updated.createdAt,
+      status: updated.status,
+      errorDetails: updated.errorDetails,
+      annotationData: updated.annotationData,
+      version: updated.version,
     });
   }
 }
