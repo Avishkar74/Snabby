@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
-import type { CapturePreview } from '../hooks/useCaptures.ts';
+import type { PagePreview } from '../hooks/useCaptures.ts';
 
 interface LightboxPreviewProps {
   isOpen: boolean;
-  capture: CapturePreview | null;
-  captures: CapturePreview[];
-  onSelectCapture: (capture: CapturePreview) => void;
+  capture: PagePreview | null;
+  captures: PagePreview[];
+  onSelectCapture: (capture: PagePreview) => void;
   onClose: () => void;
 }
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSession } from '../features/session/hooks/useSession.ts';
 import { useCaptures } from '../features/capture/hooks/useCaptures.ts';
-import type { CapturePreview } from '../features/capture/hooks/useCaptures.ts';
+import type { PagePreview } from '../features/capture/hooks/useCaptures.ts';
 import { usePdfExporter } from '../features/pdf/hooks/usePdfExporter.ts';
 import { NewSessionView } from '../features/session/components/NewSessionView.tsx';
 import { ActiveSessionView } from '../features/session/components/ActiveSessionView.tsx';
@@ -166,7 +166,7 @@ export const App: React.FC = () => {
 
   const [showOverwriteModal, setShowOverwriteModal] = useState(false);
   const [overwriteSessionName, setOverwriteSessionName] = useState('');
-  const [selectedCapture, setSelectedCapture] = useState<CapturePreview | null>(null);
+  const [selectedCapture, setSelectedCapture] = useState<PagePreview | null>(null);
   const [manualActivated, setManualActivated] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -269,7 +269,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSelectCapture = (capture: CapturePreview) => {
+  const handleSelectCapture = (capture: PagePreview) => {
     setSelectedCapture(capture);
   };
 

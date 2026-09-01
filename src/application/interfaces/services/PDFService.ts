@@ -1,6 +1,6 @@
 import type { Session } from '../../../domain/session/Session.ts';
-import type { Capture } from '../../../domain/capture/Capture.ts';
+import type { Page } from '../../../domain/page/Page.ts';
 
 export interface PDFService {
-  generate(session: Session, captures: Capture[]): Promise<Blob>;
+  generate(session: Session, pages: Page[]): Promise<Blob>;
 }

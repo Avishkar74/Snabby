@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Session } from '../../../domain/session/Session.ts';
-import type { CapturePreview } from '../../capture/hooks/useCaptures.ts';
+import type { PagePreview } from '../../capture/hooks/useCaptures.ts';
 import { CaptureCard } from '../../capture/components/CaptureCard.tsx';
 import type { ExportStatus } from '../../pdf/hooks/usePdfExporter.ts';
 
 interface ActiveSessionViewProps {
   session: Session;
-  captures: CapturePreview[];
+  captures: PagePreview[];
   captureLoading: boolean;
   captureInProgress: boolean;
   captureError: string | null;
@@ -18,7 +18,7 @@ interface ActiveSessionViewProps {
   onEndSession: () => Promise<void>;
   onExportPdf: (skipPendingOcr: boolean) => Promise<void>;
   onCheckOcrStatus: () => Promise<{ pendingCount: number; totalCount: number }>;
-  onSelectCapture: (capture: CapturePreview) => void;
+  onSelectCapture: (capture: PagePreview) => void;
 }
 
 export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({

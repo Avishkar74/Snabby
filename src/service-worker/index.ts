@@ -1,4 +1,4 @@
-import { IndexedDBCaptureRepository } from '../infrastructure/indexeddb/repositories/IndexedDBCaptureRepository.ts';
+
 import { IndexedDBImageRepository } from '../infrastructure/indexeddb/repositories/IndexedDBImageRepository.ts';
 import { IndexedDBOCRRepository } from '../infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts';
 import { IndexedDBSessionRepository } from '../infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts';
@@ -24,7 +24,7 @@ console.log('[Service Worker] Initializing Snabby service worker...');
 
 // 1. Instantiate Repositories
 const sessionRepo = new IndexedDBSessionRepository();
-const captureRepo = new IndexedDBCaptureRepository();
+
 const ocrRepo = new IndexedDBOCRRepository();
 const imageRepo = new IndexedDBImageRepository();
 
@@ -45,7 +45,7 @@ const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
 // RunOCR uses PageRepository so it can update status on both Capture (via supertype) and Page
 const runOCR = new RunOCR(ocrService, ocrRepo, pageRepo);
-const generatePDF = new GeneratePDF(sessionRepo, captureRepo, ocrRepo, pdfService);
+const generatePDF = new GeneratePDF(sessionRepo, pageRepo, ocrRepo, pdfService);
 const downloadPDF = new DownloadPDF(downloadService);
 // The active screenshot creation path. Triggers OCR asynchronously.
 export const createScreenshotPage = new CreateScreenshotPage(
@@ -420,7 +420,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           };
         }
         case 'DELETE_CAPTURE': {
-          await captureRepo.delete(message.captureId);
+          await pageRepo.delete(message.captureId);
           broadcastMessage({ type: 'SESSION_UPDATED' });
           return { success: true };
         }
@@ -429,21 +429,21 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           if (sessions.length === 0) {
             return {
               success: true,
-              data: { captures: [] }
+              data: { pages: [] }
             };
           }
-          const captures = await captureRepo.findBySessionId(sessions[0].id);
-          const capturesWithImages = await Promise.all(
-            captures.map(async (c) => {
-              const imageAsset = await imageRepo.findById(c.imageId);
-              const ocrResult = await ocrRepo.findByCaptureId(c.id);
+          const pages = await pageRepo.findBySessionId(sessions[0].id);
+          const pagesWithImages = await Promise.all(
+            pages.map(async (p) => {
+              const imageAsset = await imageRepo.findById(p.effectiveRenderedImageId);
+              const ocrResult = await ocrRepo.findByCaptureId(p.id);
 
               let status: string = OCRStatus.NOT_STARTED;
               if (ocrResult) {
                 status = ocrResult.status;
-              } else if (c.status === 'PROCESSING') {
+              } else if (p.status === 'PROCESSING') {
                 status = OCRStatus.PROCESSING;
-              } else if (c.status === 'FAILED') {
+              } else if (p.status === 'FAILED') {
                 status = OCRStatus.FAILED;
               }
 
@@ -463,19 +463,19 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               }
 
               return {
-                id: c.id,
-                sessionId: c.sessionId,
-                imageId: c.imageId,
+                id: p.id,
+                sessionId: p.sessionId,
+                imageId: p.imageId,
                 status,
-                order: c.order,
-                createdAt: c.createdAt,
+                order: p.order,
+                createdAt: p.createdAt,
                 imageUrl
               };
             })
           );
           return {
             success: true,
-            data: { captures: capturesWithImages }
+            data: { pages: pagesWithImages }
           };
         }
         case 'CHECK_OCR_STATUS': {
@@ -486,12 +486,12 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               data: { pendingCount: 0, totalCount: 0 }
             };
           }
-          const captures = await captureRepo.findBySessionId(sessions[0].id);
-          const ocrResults = await Promise.all(captures.map(c => ocrRepo.findByCaptureId(c.id)));
+          const pages = await pageRepo.findBySessionId(sessions[0].id);
+          const ocrResults = await Promise.all(pages.map(p => ocrRepo.findByCaptureId(p.id)));
           const completedOrFailedCount = ocrResults.filter(
             r => r && (r.status === OCRStatus.COMPLETED || r.status === OCRStatus.FAILED)
           ).length;
-          const totalCount = captures.length;
+          const totalCount = pages.length;
           const pendingCount = totalCount - completedOrFailedCount;
           return {
             success: true,

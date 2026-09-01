@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useMessageBus } from '../../../app/providers/MessageBusContext.tsx';
 
-export interface CapturePreview {
+export interface PagePreview {
   id: string;
   sessionId: string;
   imageId: string;
@@ -13,7 +13,7 @@ export interface CapturePreview {
 
 export const useCaptures = () => {
   const messageBus = useMessageBus();
-  const [captures, setCaptures] = useState<CapturePreview[]>([]);
+  const [captures, setCaptures] = useState<PagePreview[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [captureInProgress, setCaptureInProgress] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,10 +21,10 @@ export const useCaptures = () => {
   const fetchCaptures = async () => {
     try {
       setError(null);
-      const res = await messageBus.request<{ success: boolean; data: { captures: CapturePreview[] } }>({
+      const res = await messageBus.request<{ success: boolean; data: { pages: PagePreview[] } }>({
         type: 'GET_ALL_THUMBNAILS',
       });
-      const sorted = [...res.data.captures].sort((a, b) => a.order - b.order);
+      const sorted = [...res.data.pages].sort((a, b) => a.order - b.order);
       setCaptures(sorted);
     } catch (err: any) {
       setError(err.message || String(err));

@@ -1,11 +1,11 @@
 import React from 'react';
-import type { CapturePreview } from '../hooks/useCaptures.ts';
+import type { PagePreview } from '../hooks/useCaptures.ts';
 
 interface CaptureCardProps {
-  capture: CapturePreview;
+  capture: PagePreview;
   index: number;
   onDelete: (id: string) => void;
-  onSelect: (capture: CapturePreview) => void;
+  onSelect: (capture: PagePreview) => void;
 }
 
 export const CaptureCard: React.FC<CaptureCardProps> = ({
