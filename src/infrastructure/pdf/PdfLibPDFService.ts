@@ -1,7 +1,7 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import type { PDFService } from '../../application/interfaces/services/PDFService.ts';
 import type { Session } from '../../domain/session/Session.ts';
-import type { Capture } from '../../domain/capture/Capture.ts';
+import type { Page } from '../../domain/page/Page.ts';
 import type { ImageRepository } from '../../application/interfaces/repositories/ImageRepository.ts';
 import type { OCRRepository } from '../../application/interfaces/repositories/OCRRepository.ts';
 import { CoordinateMapper } from './coordinate/CoordinateMapper.ts';
@@ -16,7 +16,7 @@ export class PdfLibPDFService implements PDFService {
     this.ocrRepo = ocrRepo;
   }
 
-  public async generate(session: Session, captures: Capture[]): Promise<Blob> {
+  public async generate(session: Session, pages: Page[]): Promise<Blob> {
     try {
       const pdfDoc = await PDFDocument.create();
       
@@ -26,11 +26,11 @@ export class PdfLibPDFService implements PDFService {
       // Helvetica standard font is used for the invisible text overlay
       const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-      for (const capture of captures) {
+      for (const page of pages) {
         // 1. Load raw screenshot image data
-        const imageAsset = await this.imageRepo.findById(capture.imageId);
+        const imageAsset = await this.imageRepo.findById(page.effectiveRenderedImageId);
         if (!imageAsset) {
-          throw new Error(`Screenshot image not found in DB for capture: ${capture.id}`);
+          throw new Error(`Screenshot image not found in DB for page: ${page.id}`);
         }
 
         const imageBytes = await imageAsset.data.arrayBuffer();
@@ -51,7 +51,7 @@ export class PdfLibPDFService implements PDFService {
         const pageWidth = imageWidth + margin * 2;
         const pageHeight = imageHeight + margin * 2;
 
-        const page = pdfDoc.addPage([pageWidth, pageHeight]);
+        const pdfPage = pdfDoc.addPage([pageWidth, pageHeight]);
 
         const scale = 1.0;
         const renderedWidth = imageWidth;
@@ -60,7 +60,7 @@ export class PdfLibPDFService implements PDFService {
         const imgBottom = margin;
 
         // 5. Draw the screenshot image (centered with a white margin)
-        page.drawImage(embeddedImage, {
+        pdfPage.drawImage(embeddedImage, {
           x: imgLeft,
           y: imgBottom,
           width: renderedWidth,
@@ -68,7 +68,7 @@ export class PdfLibPDFService implements PDFService {
         });
 
         // 6. Draw invisible selectable OCR text overlay if available
-        const ocrResult = await this.ocrRepo.findByCaptureId(capture.id);
+        const ocrResult = await this.ocrRepo.findByCaptureId(page.id);
         if (ocrResult && ocrResult.words.length > 0) {
           for (const word of ocrResult.words) {
             // Transform top-left image coordinates to bottom-left PDF coordinates
@@ -89,7 +89,7 @@ export class PdfLibPDFService implements PDFService {
             }
 
             // Draw selectable word on top of image with opacity 0 (invisible selectable)
-            page.drawText(word.text, {
+            pdfPage.drawText(word.text, {
               x: mapped.x,
               y: mapped.y,
               size: mapped.height,

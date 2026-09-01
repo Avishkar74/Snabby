@@ -80,7 +80,13 @@ export class IndexedDBSessionRepository implements SessionRepository {
     });
 
     const captureIds = captures.map((c) => c.id);
-    const imageIds = captures.map((c) => c.imageId);
+    const imageIds = new Set<string>();
+    captures.forEach((c) => {
+      if (c.imageId) imageIds.add(c.imageId);
+      if (c.renderedImageId && c.renderedImageId !== c.imageId) {
+        imageIds.add(c.renderedImageId);
+      }
+    });
 
     // 2. Cascade delete session and all dependent entities atomically
     return new Promise<void>((resolve, reject) => {
