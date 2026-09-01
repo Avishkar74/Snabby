@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Excalidraw, convertToExcalidrawElements } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import type { FileId } from '@excalidraw/excalidraw/element/types';
@@ -16,34 +16,123 @@ interface PageImageData {
 
 export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   const messageBus = useMessageBus();
-  const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [imageData, setImageData] = useState<PageImageData | null>(null);
 
-  // Active page ID ref to prevent stale async responses when switching quickly
+  // Stable refs for API, active page ID, and initialization tracking
+  const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const activePageIdRef = useRef<string | null>(pageId);
+  const initializedPageIdRef = useRef<string | null>(null);
+  const pendingImageDataRef = useRef<PageImageData | null>(null);
 
+  // Helper to populate scene ONCE when image data and API are ready
+  const populateScene = useCallback((api: ExcalidrawImperativeAPI, imgData: PageImageData) => {
+    try {
+      const fileId = `img_${imgData.pageId}` as FileId;
+
+      // 1. Add image file to Excalidraw's internal file cache
+      api.addFiles([
+        {
+          id: fileId,
+          dataURL: imgData.dataUrl as any,
+          mimeType: imgData.mimeType as any,
+          created: Date.now(),
+        },
+      ]);
+
+      // 2. Create Page Frame & Bounded Image Element locked at origin (0, 0)
+      const imageElementId = `image_${imgData.pageId}`;
+      const frameId = `frame_${imgData.pageId}`;
+      const elements = convertToExcalidrawElements([
+        {
+          type: 'frame',
+          id: frameId as any,
+          x: 0,
+          y: 0,
+          width: imgData.width,
+          height: imgData.height,
+          name: `Page (${imgData.width} × ${imgData.height})`,
+          children: [imageElementId],
+        },
+        {
+          type: 'image',
+          id: imageElementId as any,
+          x: 0,
+          y: 0,
+          width: imgData.width,
+          height: imgData.height,
+          fileId,
+          status: 'saved',
+          locked: true,
+          frameId,
+        },
+      ]);
+
+      // 3. Populate scene with the screenshot & set dark background
+      api.updateScene({
+        elements,
+        appState: {
+          viewBackgroundColor: '#121212',
+        },
+      });
+
+      // 4. Center and fit viewport to the screenshot page bounds [0, 0, W, H]
+      api.scrollToContent(elements, {
+        fitToViewport: true,
+        viewportZoomFactor: 0.85,
+        animate: false,
+      });
+    } catch (err) {
+      console.error('[PageEditor] Failed to populate scene:', err);
+      setError('Failed to display screenshot on canvas');
+    }
+  }, []);
+
+  // Excalidraw API callback handler
+  const handleExcalidrawAPI = useCallback(
+    (api: ExcalidrawImperativeAPI) => {
+      excalidrawAPIRef.current = api;
+
+      // If there is pending image data waiting for the API, populate scene now
+      if (
+        pendingImageDataRef.current &&
+        pendingImageDataRef.current.pageId === activePageIdRef.current &&
+        initializedPageIdRef.current === activePageIdRef.current
+      ) {
+        populateScene(api, pendingImageDataRef.current);
+        pendingImageDataRef.current = null;
+      }
+    },
+    [populateScene]
+  );
+
+  // Main page load effect: runs ONLY when pageId changes
   useEffect(() => {
     activePageIdRef.current = pageId;
+
     if (!pageId) {
-      setImageData(null);
-      setError(null);
+      initializedPageIdRef.current = null;
+      pendingImageDataRef.current = null;
       setLoading(false);
+      setError(null);
+      return;
+    }
+
+    // CRITICAL: If this page has ALREADY been initialized, do NOT re-run initialization!
+    if (initializedPageIdRef.current === pageId) {
       return;
     }
 
     let cancelled = false;
 
-    const fetchPageImage = async () => {
+    const loadPage = async () => {
       setLoading(true);
       setError(null);
-      setImageData(null);
 
-      // Reset Excalidraw scene to prevent stale elements from previous page
-      if (excalidrawAPI) {
+      // Clear previous scene if API is ready
+      if (excalidrawAPIRef.current) {
         try {
-          excalidrawAPI.resetScene();
+          excalidrawAPIRef.current.resetScene();
         } catch (e) {
           console.debug('[PageEditor] Error resetting scene:', e);
         }
@@ -64,7 +153,16 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         }
 
         if (response.success && response.data) {
-          setImageData(response.data);
+          const imgData = response.data;
+          initializedPageIdRef.current = pageId;
+
+          if (excalidrawAPIRef.current) {
+            populateScene(excalidrawAPIRef.current, imgData);
+            pendingImageDataRef.current = null;
+          } else {
+            pendingImageDataRef.current = imgData;
+          }
+
           setLoading(false);
         } else {
           setError(response.error?.message || 'Failed to load page screenshot');
@@ -78,79 +176,12 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       }
     };
 
-    fetchPageImage();
+    loadPage();
 
     return () => {
       cancelled = true;
     };
-  }, [pageId, messageBus, excalidrawAPI]);
-
-  // Once both image data and Excalidraw API are available, populate scene
-  useEffect(() => {
-    if (!imageData || !excalidrawAPI || imageData.pageId !== pageId) {
-      return;
-    }
-
-    try {
-      const fileId = `img_${imageData.pageId}` as FileId;
-
-      // 1. Add image file to Excalidraw's internal file cache
-      excalidrawAPI.addFiles([
-        {
-          id: fileId,
-          dataURL: imageData.dataUrl as any,
-          mimeType: imageData.mimeType as any,
-          created: Date.now(),
-        },
-      ]);
-
-      // 2. Create Page Frame & Bounded Image Element locked at origin (0, 0)
-      const imageElementId = `image_${imageData.pageId}`;
-      const frameId = `frame_${imageData.pageId}`;
-      const elements = convertToExcalidrawElements([
-        {
-          type: 'frame',
-          id: frameId as any,
-          x: 0,
-          y: 0,
-          width: imageData.width,
-          height: imageData.height,
-          name: `Page (${imageData.width} × ${imageData.height})`,
-          children: [imageElementId],
-        },
-        {
-          type: 'image',
-          id: imageElementId as any,
-          x: 0,
-          y: 0,
-          width: imageData.width,
-          height: imageData.height,
-          fileId,
-          status: 'saved',
-          locked: true,
-          frameId,
-        },
-      ]);
-
-      // 3. Update scene with the framed screenshot image element & canvas background
-      excalidrawAPI.updateScene({
-        elements,
-        appState: {
-          viewBackgroundColor: '#121212',
-        },
-      });
-
-      // 4. Center and fit viewport to the page frame bounds [0, 0, W, H]
-      excalidrawAPI.scrollToContent(elements, {
-        fitToViewport: true,
-        viewportZoomFactor: 0.85,
-        animate: false,
-      });
-    } catch (err) {
-      console.error('[PageEditor] Failed to render image in Excalidraw:', err);
-      setError('Failed to display screenshot on canvas');
-    }
-  }, [imageData, excalidrawAPI, pageId]);
+  }, [pageId, messageBus, populateScene]);
 
   if (!pageId) {
     return null;
@@ -208,7 +239,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       </div>
 
       <div style={{ flex: 1, width: '100%', height: 'calc(100vh - 48px)', position: 'relative' }}>
-        <Excalidraw theme="dark" excalidrawAPI={(api) => setExcalidrawAPI(api)} />
+        <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} />
 
         {loading && (
           <div
