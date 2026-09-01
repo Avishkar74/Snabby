@@ -18,6 +18,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   const messageBus = useMessageBus();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
 
   // Stable refs for API, active page ID, and initialization tracking
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -56,7 +57,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       ]);
 
-      // 3. Populate scene with the screenshot & set dark background
+      // 3. Populate scene with the screenshot & set dark canvas background
       api.updateScene({
         elements,
         appState: {
@@ -101,6 +102,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     if (!pageId) {
       initializedPageIdRef.current = null;
       pendingImageDataRef.current = null;
+      setDimensions(null);
       setLoading(false);
       setError(null);
       return;
@@ -116,6 +118,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     const loadPage = async () => {
       setLoading(true);
       setError(null);
+      setDimensions(null);
 
       // Clear previous scene if API is ready
       if (excalidrawAPIRef.current) {
@@ -143,6 +146,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         if (response.success && response.data) {
           const imgData = response.data;
           initializedPageIdRef.current = pageId;
+          setDimensions({ width: imgData.width, height: imgData.height });
 
           if (excalidrawAPIRef.current) {
             populateScene(excalidrawAPIRef.current, imgData);
@@ -240,21 +244,65 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           position: 'relative',
         }}
       >
+        {/* Header Bar */}
         <div
           className="wsn-editor-header"
           style={{
-            height: '48px',
+            height: '52px',
             backgroundColor: '#1e1e1e',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '0 16px',
+            padding: '0 20px',
             color: '#ffffff',
             borderBottom: '1px solid #333333',
             flexShrink: 0,
           }}
         >
-          <span style={{ fontWeight: 600, fontSize: '14px' }}>Page Editor — {pageId}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontWeight: 600, fontSize: '15px', color: '#ffffff' }}>Page Editor</span>
+            <span style={{ color: '#555555', fontSize: '14px' }}>•</span>
+            <span
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                color: '#888888',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+              title={pageId}
+            >
+              {pageId.length > 24 ? `${pageId.substring(0, 24)}...` : pageId}
+            </span>
+
+            {/* Screenshot Boundary Label / Dimension Badge */}
+            {dimensions && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '6px',
+                  padding: '3px 10px',
+                  fontSize: '12px',
+                  color: '#cccccc',
+                  fontWeight: 500,
+                  marginLeft: '4px',
+                }}
+              >
+                <span>Screenshot</span>
+                <span style={{ color: '#666666' }}>•</span>
+                <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                  {dimensions.width} &times; {dimensions.height}
+                </span>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={onClose}
@@ -287,7 +335,8 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           </button>
         </div>
 
-        <div style={{ flex: 1, width: '100%', height: 'calc(100% - 48px)', position: 'relative' }}>
+        {/* Workspace Body */}
+        <div style={{ flex: 1, width: '100%', height: 'calc(100% - 52px - 36px)', position: 'relative' }}>
           <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} />
 
           {loading && (
@@ -347,6 +396,42 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
               </button>
             </div>
           )}
+        </div>
+
+        {/* User-Friendly Bounds Guidance Footer */}
+        <div
+          className="wsn-editor-bounds-footer"
+          style={{
+            height: '36px',
+            backgroundColor: '#181818',
+            borderTop: '1px solid #2a2a2a',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: '0 16px',
+            color: '#aaaaaa',
+            fontSize: '12px',
+            flexShrink: 0,
+            userSelect: 'none',
+          }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#60a5fa"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <span>Anything you add outside the screenshot won't be included in the final result.</span>
         </div>
       </div>
     </div>
