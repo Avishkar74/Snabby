@@ -16,9 +16,15 @@ if (!document.getElementById('wsn-root')) {
 
   const shadow = host.attachShadow({ mode: 'open' });
 
+  // Scope Excalidraw's `:root` CSS rules so they apply properly inside Shadow DOM
+  const scopedExcalidrawCss = excalidrawCss
+    .replace(/:root\[dir=ltr\]/g, ':host, :root, .excalidraw, [dir=ltr]')
+    .replace(/:root\[dir=rtl\]/g, ':host[dir=rtl], :root[dir=rtl], [dir=rtl]')
+    .replace(/:root/g, ':host, :root, .excalidraw');
+
   // Inject Snabby-specific styles & Excalidraw styles into Shadow DOM
   const styleEl = document.createElement('style');
-  styleEl.textContent = appCss + '\n' + excalidrawCss;
+  styleEl.textContent = appCss + '\n' + scopedExcalidrawCss;
   shadow.appendChild(styleEl);
 
   const container = document.createElement('div');

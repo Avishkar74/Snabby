@@ -58,7 +58,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         </button>
       </div>
       <div style={{ flex: 1, width: '100%', height: 'calc(100vh - 48px)', position: 'relative' }}>
-        <Excalidraw />
+        <Excalidraw theme="dark" />
       </div>
     </div>
   );
