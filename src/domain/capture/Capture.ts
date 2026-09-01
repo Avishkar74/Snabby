@@ -4,8 +4,8 @@ import { PageType, PageSource, ProcessingStatus } from '../page/page.types.ts';
 import type { ICaptureProps } from './capture.types.ts';
 
 export class Capture extends Page {
-  public override readonly imageId: ImageId;
-  public override readonly source: PageSource;
+  public declare readonly imageId: ImageId;
+  public declare readonly source: PageSource;
 
   constructor(props: ICaptureProps) {
     super({
