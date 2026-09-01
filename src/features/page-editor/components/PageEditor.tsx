@@ -259,17 +259,27 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
             type="button"
             onClick={onClose}
             style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#ffffff',
-              fontSize: '20px',
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              color: '#ef4444',
+              fontSize: '18px',
+              fontWeight: 'bold',
               cursor: 'pointer',
               lineHeight: 1,
-              padding: '4px 8px',
-              borderRadius: '4px',
+              padding: '4px 10px',
+              borderRadius: '6px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#ef4444';
+              e.currentTarget.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+              e.currentTarget.style.color = '#ef4444';
             }}
             title="Close Editor"
           >
