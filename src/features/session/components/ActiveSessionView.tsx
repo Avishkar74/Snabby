@@ -19,6 +19,7 @@ interface ActiveSessionViewProps {
   onExportPdf: (skipPendingOcr: boolean) => Promise<void>;
   onCheckOcrStatus: () => Promise<{ pendingCount: number; totalCount: number }>;
   onSelectCapture: (capture: PagePreview) => void;
+  onEditCapture: (id: string) => void;
 }
 
 export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
@@ -36,6 +37,7 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
   onExportPdf,
   onCheckOcrStatus,
   onSelectCapture,
+  onEditCapture,
 }) => {
   const [isDecisionOpen, setIsDecisionOpen] = useState(false);
   const [pendingOcrCount, setPendingOcrCount] = useState(0);
@@ -148,7 +150,7 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
             </div>
           ) : (
             captures.map((capture, index) => (
-              <CaptureCard key={capture.id} capture={capture} index={index} onDelete={onDeleteCapture} onSelect={onSelectCapture} />
+              <CaptureCard key={capture.id} capture={capture} index={index} onDelete={onDeleteCapture} onSelect={onSelectCapture} onEdit={onEditCapture} />
             ))
           )}
         </div>

@@ -1,4 +1,6 @@
+import type { PageId } from '../../../domain/common/ids.ts';
+
 export interface PageEditorProps {
-  isOpen: boolean;
+  pageId: PageId | null;
   onClose: () => void;
 }

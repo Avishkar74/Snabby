@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSession } from '../features/session/hooks/useSession.ts';
 import { useCaptures } from '../features/capture/hooks/useCaptures.ts';
 import type { PagePreview } from '../features/capture/hooks/useCaptures.ts';
+import type { PageId } from '../domain/common/ids.ts';
 import { usePdfExporter } from '../features/pdf/hooks/usePdfExporter.ts';
 import { NewSessionView } from '../features/session/components/NewSessionView.tsx';
 import { ActiveSessionView } from '../features/session/components/ActiveSessionView.tsx';
@@ -168,7 +169,7 @@ export const App: React.FC = () => {
   const [showOverwriteModal, setShowOverwriteModal] = useState(false);
   const [overwriteSessionName, setOverwriteSessionName] = useState('');
   const [selectedCapture, setSelectedCapture] = useState<PagePreview | null>(null);
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editingPageId, setEditingPageId] = useState<PageId | null>(null);
   const [manualActivated, setManualActivated] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -275,6 +276,10 @@ export const App: React.FC = () => {
     setSelectedCapture(capture);
   };
 
+  const handleEditCapture = (pageId: string) => {
+    setEditingPageId(pageId as PageId);
+  };
+
   const handleCloseLightbox = () => {
     setSelectedCapture(null);
   };
@@ -359,6 +364,7 @@ export const App: React.FC = () => {
               onExportPdf={handleExportPdf}
               onCheckOcrStatus={checkOcrStatus}
               onSelectCapture={handleSelectCapture}
+              onEditCapture={handleEditCapture}
             />
           ) : (
             <NewSessionView
@@ -412,8 +418,8 @@ export const App: React.FC = () => {
 
       {/* Page Editor overlay */}
       <PageEditor
-        isOpen={isEditorOpen}
-        onClose={() => setIsEditorOpen(false)}
+        pageId={editingPageId}
+        onClose={() => setEditingPageId(null)}
       />
 
       {/* Toast notifications */}

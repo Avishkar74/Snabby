@@ -2,8 +2,8 @@ import React from 'react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import type { PageEditorProps } from '../types/pageEditor.types.ts';
 
-export const PageEditor: React.FC<PageEditorProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) {
+export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
+  if (!pageId) {
     return null;
   }
 
@@ -39,7 +39,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ isOpen, onClose }) => {
           flexShrink: 0,
         }}
       >
-        <span style={{ fontWeight: 600, fontSize: '14px' }}>Page Editor</span>
+        <span style={{ fontWeight: 600, fontSize: '14px' }}>Page Editor — {pageId}</span>
         <button
           type="button"
           onClick={onClose}
