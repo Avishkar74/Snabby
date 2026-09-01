@@ -15,6 +15,7 @@ import { ChromeDownloadAdapter } from '../infrastructure/chrome/downloads/Chrome
 import { CreateSession } from '../application/session/CreateSession.ts';
 import { DeleteSession } from '../application/session/DeleteSession.ts';
 import { CreateScreenshotPage } from '../application/page/CreateScreenshotPage.ts';
+import { GetPageEditorImage } from '../application/page/GetPageEditorImage.ts';
 import { RunOCR } from '../application/ocr/RunOCR.ts';
 import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
 import { DownloadPDF } from '../application/pdf/DownloadPDF.ts';
@@ -43,6 +44,7 @@ const pagePersistenceService = new IndexedDBPagePersistenceService();
 // 4. Instantiate Use Cases
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
+const getPageEditorImage = new GetPageEditorImage(pageRepo, imageRepo);
 // RunOCR uses PageRepository so it can update status on both Capture (via supertype) and Page
 const runOCR = new RunOCR(ocrService, ocrRepo, pageRepo);
 const generatePDF = new GeneratePDF(sessionRepo, pageRepo, ocrRepo, pdfService);
@@ -476,6 +478,45 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           return {
             success: true,
             data: { pages: pagesWithImages }
+          };
+        }
+        case 'GET_PAGE_EDITOR_IMAGE': {
+          const result = await getPageEditorImage.execute(message.pageId);
+          if (!result) {
+            return {
+              success: false,
+              error: {
+                code: 'PAGE_OR_IMAGE_NOT_FOUND',
+                message: `Page or image asset not found for page ID: ${message.pageId}`,
+                operation: 'GET_PAGE_EDITOR_IMAGE',
+              },
+            };
+          }
+
+          const { page, imageAsset } = result;
+          const arrayBuffer = await imageAsset.data.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          let binaryString = '';
+          const len = bytes.byteLength;
+          const chunk = 8192;
+          for (let i = 0; i < len; i += chunk) {
+            const slice = bytes.subarray(i, Math.min(i + chunk, len));
+            binaryString += String.fromCharCode.apply(null, slice as any);
+          }
+          const base64 = btoa(binaryString);
+          const mimeType = imageAsset.mimeType || imageAsset.data.type || 'image/png';
+          const dataUrl = `data:${mimeType};base64,${base64}`;
+
+          return {
+            success: true,
+            data: {
+              pageId: page.id,
+              imageId: imageAsset.id,
+              dataUrl,
+              width: imageAsset.width,
+              height: imageAsset.height,
+              mimeType,
+            },
           };
         }
         case 'CHECK_OCR_STATUS': {
