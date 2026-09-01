@@ -2,6 +2,7 @@ import type { CaptureAdapter } from '../interfaces/adapters/CaptureAdapter.ts';
 import type { ImageProcessor } from '../interfaces/services/ImageProcessor.ts';
 import type { PagePersistenceService } from '../interfaces/services/PagePersistenceService.ts';
 import type { PageRepository } from '../interfaces/repositories/PageRepository.ts';
+import type { RunOCR } from '../ocr/RunOCR.ts';
 import type { PageSource } from '../../domain/page/page.types.ts';
 import type { SessionId } from '../../domain/common/ids.ts';
 import { Page } from '../../domain/page/Page.ts';
@@ -22,17 +23,20 @@ export class CreateScreenshotPage {
   private readonly imageProcessor: ImageProcessor;
   private readonly pagePersistenceService: PagePersistenceService;
   private readonly pageRepository: PageRepository;
+  private readonly runOCR?: RunOCR;
 
   constructor(
     captureAdapter: CaptureAdapter,
     imageProcessor: ImageProcessor,
     pagePersistenceService: PagePersistenceService,
-    pageRepository: PageRepository
+    pageRepository: PageRepository,
+    runOCR?: RunOCR
   ) {
     this.captureAdapter = captureAdapter;
     this.imageProcessor = imageProcessor;
     this.pagePersistenceService = pagePersistenceService;
     this.pageRepository = pageRepository;
+    this.runOCR = runOCR;
   }
 
   public async execute(input: CreateScreenshotPageInput): Promise<CreateScreenshotPageResult> {
@@ -64,6 +68,13 @@ export class CreateScreenshotPage {
 
     // 7. Persist atomically
     await this.pagePersistenceService.save(page, imageAsset);
+
+    // 8. Trigger OCR asynchronously (fire-and-forget)
+    if (this.runOCR) {
+      this.runOCR.execute({ page, image: imageAsset }).catch((err) => {
+        console.warn('[CreateScreenshotPage] Asynchronous OCR execution failed:', err);
+      });
+    }
 
     return {
       page,

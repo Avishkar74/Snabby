@@ -119,17 +119,17 @@ runOCR.execute = async (input) => {
   try {
     await ensureOffscreenDocument();
     const result = await originalRunOcrExecute(input);
-    console.log(`[Service Worker] OCR completed for capture ${input.capture.id}`);
+    console.log(`[Service Worker] OCR completed for page ${input.page.id}`);
     broadcastMessage({
       type: 'OCR_COMPLETED',
-      captureId: input.capture.id
+      captureId: input.page.id
     });
     return result;
   } catch (err: any) {
-    console.warn(`[Service Worker] OCR failed for capture ${input.capture.id}:`, err);
+    console.warn(`[Service Worker] OCR failed for page ${input.page.id}:`, err);
     broadcastMessage({
       type: 'OCR_FAILED',
-      captureId: input.capture.id,
+      captureId: input.page.id,
       error: {
         code: 'OCR_FAILED',
         message: err.message || String(err),

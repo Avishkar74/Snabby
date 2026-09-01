@@ -71,7 +71,8 @@ export class CaptureScreenshot {
 
     // 8. Start OCR asynchronously (fire-and-forget)
     if (this.runOCR) {
-      this.runOCR.execute({ capture, image: imageAsset }).catch((err) => {
+      // Capture extends Page, so passing `capture` as `page: Page` is a valid supertype assignment.
+      this.runOCR.execute({ page: capture, image: imageAsset }).catch((err) => {
         console.warn('[CaptureScreenshot] Asynchronous OCR execution failed:', err);
       });
     }

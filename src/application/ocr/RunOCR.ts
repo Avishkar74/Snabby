@@ -1,31 +1,31 @@
 import type { OCRService } from '../interfaces/services/OCRService.ts';
 import type { OCRRepository } from '../interfaces/repositories/OCRRepository.ts';
-import type { CaptureRepository } from '../interfaces/repositories/CaptureRepository.ts';
-import type { Capture } from '../../domain/capture/Capture.ts';
+import type { PageRepository } from '../interfaces/repositories/PageRepository.ts';
+import type { Page } from '../../domain/page/Page.ts';
 import type { ImageAsset } from '../../domain/image/image.types.ts';
 import { OCRResult } from '../../domain/ocr/OCRResult.ts';
-import { ProcessingStatus } from '../../domain/capture/capture.types.ts';
+import { ProcessingStatus } from '../../domain/page/page.types.ts';
 import { OCRStatus } from '../../domain/ocr/ocr.types.ts';
 
 export interface RunOCRInput {
-  capture: Capture;
+  page: Page;
   image: ImageAsset;
 }
 
 export class RunOCR {
   private readonly ocrService: OCRService;
   private readonly ocrRepository: OCRRepository;
-  private readonly captureRepository?: CaptureRepository;
+  private readonly pageRepository?: PageRepository;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     ocrService: OCRService,
     ocrRepository: OCRRepository,
-    captureRepository?: CaptureRepository
+    pageRepository?: PageRepository
   ) {
     this.ocrService = ocrService;
     this.ocrRepository = ocrRepository;
-    this.captureRepository = captureRepository;
+    this.pageRepository = pageRepository;
   }
 
   public async execute(input: RunOCRInput): Promise<OCRResult> {
@@ -44,16 +44,16 @@ export class RunOCR {
   }
 
   private async executeInternal(input: RunOCRInput): Promise<OCRResult> {
-    let currentCapture = input.capture;
+    let currentPage = input.page;
 
-    // 1. Transition Capture.status to PROCESSING
+    // 1. Transition Page.status to PROCESSING
     try {
-      currentCapture = currentCapture.updateStatus(ProcessingStatus.PROCESSING);
-      if (this.captureRepository) {
-        await this.captureRepository.save(currentCapture);
+      currentPage = currentPage.updateStatus(ProcessingStatus.PROCESSING);
+      if (this.pageRepository) {
+        await this.pageRepository.save(currentPage);
       }
     } catch (e) {
-      console.warn('[RunOCR] Failed to update capture status to PROCESSING:', e);
+      console.warn('[RunOCR] Failed to update page status to PROCESSING:', e);
     }
 
     try {
@@ -61,8 +61,10 @@ export class RunOCR {
       const serviceResult = await this.ocrService.process(input.image);
 
       // 3. Map and save OCRResult in OCRRepository
+      // Note: OCRResult.captureId is typed as CaptureId, which is an alias for PageId.
+      // Passing page.id here is fully type-safe; no cast is required.
       const ocrResult = new OCRResult({
-        captureId: input.capture.id,
+        captureId: input.page.id,
         status: serviceResult.status,
         fullText: serviceResult.fullText,
         words: serviceResult.words,
@@ -73,34 +75,34 @@ export class RunOCR {
 
       await this.ocrRepository.save(ocrResult);
 
-      // 4. Transition Capture.status to COMPLETED or FAILED based on OCR result
+      // 4. Transition Page.status to COMPLETED or FAILED based on OCR result
       const finalStatus = serviceResult.status === OCRStatus.COMPLETED
         ? ProcessingStatus.COMPLETED
         : ProcessingStatus.FAILED;
 
-      currentCapture = currentCapture.updateStatus(finalStatus, serviceResult.errorDetails);
-      if (this.captureRepository) {
-        await this.captureRepository.save(currentCapture);
+      currentPage = currentPage.updateStatus(finalStatus, serviceResult.errorDetails);
+      if (this.pageRepository) {
+        await this.pageRepository.save(currentPage);
       }
 
       return ocrResult;
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
 
-      // 5. On failure: transition Capture.status to FAILED
+      // 5. On failure: transition Page.status to FAILED
       try {
-        currentCapture = currentCapture.updateStatus(ProcessingStatus.FAILED, errorMsg);
-        if (this.captureRepository) {
-          await this.captureRepository.save(currentCapture);
+        currentPage = currentPage.updateStatus(ProcessingStatus.FAILED, errorMsg);
+        if (this.pageRepository) {
+          await this.pageRepository.save(currentPage);
         }
       } catch (e) {
-        console.warn('[RunOCR] Failed to update capture status to FAILED:', e);
+        console.warn('[RunOCR] Failed to update page status to FAILED:', e);
       }
 
       // 6. Save a failed OCRResult in OCRRepository for consistency
       try {
         const failedOcrResult = new OCRResult({
-          captureId: input.capture.id,
+          captureId: input.page.id,
           status: OCRStatus.FAILED,
           fullText: '',
           words: [],
