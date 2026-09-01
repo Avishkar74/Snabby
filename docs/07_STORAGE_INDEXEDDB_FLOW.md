@@ -76,7 +76,20 @@ IndexedDB
 └── OCR Results
 ```
 
-> **Migration state (Task 2.5):** Snabby is transitioning from a `Session → Capture[]` model toward a `Session → Page[]` model. The physical IndexedDB store remains named `captures`. No `DB_VERSION` bump has occurred. The new `Page` domain entity is persisted via `IndexedDBPageRepository` and `IndexedDBPagePersistenceService`, which operate against the same `captures` object store. `PageMapper.toDomain()` interprets legacy records written by the old `CaptureMapper` using explicit field defaults (`type=SCREENSHOT`, `renderedImageId=imageId`, `annotationData=null`, `version=1`). A formal database migration will be addressed in a later checkpoint.
+> **Architecture state (Tasks 2.x):** Snabby is transitioning from a `Session → Capture[]` model toward a `Session → Page[]` model. The physical IndexedDB store remains named `captures` — no rename has occurred and none is planned for this milestone.
+>
+> **DB_VERSION is now 2.** The v1 → v2 upgrade in `DatabaseManager.onupgradeneeded` backfills four new Page fields onto every existing capture record:
+>
+> | Field | Legacy default |
+> | :--- | :--- |
+> | `type` | `'SCREENSHOT'` |
+> | `renderedImageId` | value of `imageId` |
+> | `annotationData` | `null` |
+> | `version` | `1` |
+>
+> Existing fields (`id`, `sessionId`, `imageId`, `order`, `source`, `createdAt`, `processingStatus`, `errorDetails`) are preserved exactly. New field values are applied only when the field is absent — already-present values are never overwritten.
+>
+> `PageMapper.toDomain()` retains its defensive fallbacks for any record that did not go through migration (partial failure, external writes, test fixtures).
 
 Conceptually:
 

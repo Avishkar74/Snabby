@@ -4,12 +4,18 @@ import type { PageId, SessionId, ImageId } from '../../../domain/common/ids.ts';
 
 /**
  * PageRecord is the physical shape of a record stored in the 'captures' IndexedDB
- * object store. New fields (type, renderedImageId, annotationData, version) are
- * optional to maintain backward compatibility with v1 screenshot records that were
- * written before the Page model was introduced.
+ * object store (DB_VERSION 2+).
  *
- * Legacy records written without these fields are interpreted as:
- *   type            = SCREENSHOT
+ * From DB_VERSION 2, the migration in DatabaseManager backfills all new Page fields
+ * on existing v1 screenshot records. Records written by the current implementation
+ * always include every field below.
+ *
+ * The optional markers on the new fields are retained so that the mapper remains
+ * defensive in case a record was somehow not reached by the migration (e.g., partial
+ * failure, external writes, or test fixtures).
+ *
+ * Legacy v1 defaults applied by the migration:
+ *   type            = 'SCREENSHOT'
  *   renderedImageId = imageId
  *   annotationData  = null
  *   version         = 1
@@ -22,7 +28,7 @@ export interface PageRecord {
   source: string;
   createdAt: number;
   processingStatus: string;
-  // New fields — optional for backward compatibility
+  // Fields backfilled by v1→v2 migration; optional only for defensive safety.
   type?: string;
   renderedImageId?: string;
   annotationData?: string | null;
