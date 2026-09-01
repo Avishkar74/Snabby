@@ -1,7 +1,7 @@
 import { build } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
-import { copyFileSync, mkdirSync, existsSync } from 'fs';
+import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
 
 async function runBuild() {
   console.log('Building background and offscreen...');
@@ -46,6 +46,19 @@ async function runBuild() {
       },
     },
   });
+
+  // Post-process popup.js to escape non-ASCII characters into \uXXXX code units
+  // Chrome content script loader rejects bundles containing raw non-ASCII / non-UTF8 bytes with "It isn't UTF-8 encoded"
+  console.log('Sanitizing popup.js encoding for Chrome content script compatibility...');
+  const popupJsPath = resolve(import.meta.dirname, 'dist/assets/popup.js');
+  if (existsSync(popupJsPath)) {
+    const rawContent = readFileSync(popupJsPath, 'utf-8');
+    const sanitizedContent = rawContent.replace(/[\u0080-\uFFFF]/g, (c) => {
+      return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
+    });
+    writeFileSync(popupJsPath, sanitizedContent, 'utf-8');
+    console.log('Successfully sanitized popup.js for Chrome UTF-8 content script loading.');
+  }
 
   try {
     copyFileSync('manifest.json', 'dist/manifest.json');
