@@ -6,6 +6,7 @@ import { usePdfExporter } from '../features/pdf/hooks/usePdfExporter.ts';
 import { NewSessionView } from '../features/session/components/NewSessionView.tsx';
 import { ActiveSessionView } from '../features/session/components/ActiveSessionView.tsx';
 import { LightboxPreview } from '../features/capture/components/LightboxPreview.tsx';
+import { PageEditor } from '../features/page-editor/index.ts';
 import { FloatingMascot } from '../features/capture/components/FloatingMascot.tsx';
 import { useMessageBus } from './providers/MessageBusContext.tsx';
 
@@ -167,6 +168,7 @@ export const App: React.FC = () => {
   const [showOverwriteModal, setShowOverwriteModal] = useState(false);
   const [overwriteSessionName, setOverwriteSessionName] = useState('');
   const [selectedCapture, setSelectedCapture] = useState<PagePreview | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [manualActivated, setManualActivated] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -406,6 +408,12 @@ export const App: React.FC = () => {
         captures={captures}
         onSelectCapture={handleSelectCapture}
         onClose={handleCloseLightbox}
+      />
+
+      {/* Page Editor overlay */}
+      <PageEditor
+        isOpen={isEditorOpen}
+        onClose={() => setIsEditorOpen(false)}
       />
 
       {/* Toast notifications */}
