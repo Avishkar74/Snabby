@@ -887,3 +887,9 @@ Captures are processed one at a time. The image binary is loaded, embedded into 
 
 > **Core principle:** PDF generation combines the persisted screenshot and its OCR data without modifying either. The screenshot provides the visual page, while the OCR result provides the searchable text layer.
 
+
+
+
+## ARCHITECTURE UPDATE: Page-based PDF Flow
+
+The active PDF pipeline now works with the Page entity. The PDF rendering path conceptually uses page.effectiveRenderedImageId. This enables future support for original screenshots, edited screenshots, and custom pages. (Note: Custom pages and annotation UI are future work and not currently implemented in the UI).

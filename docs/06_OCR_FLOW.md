@@ -2234,3 +2234,11 @@ All open questions from the initial design have been resolved. The final decisio
 ---
 
 > **Core principle:** Snabby uses Tesseract.js inside a dedicated Chrome Offscreen Document as an isolated infrastructure service to transform captured screenshots into persistent, word-level bounding-box OCR representations without blocking or compromising extension Service Worker lifecycles.
+
+
+
+## ARCHITECTURE UPDATE: Page Migration
+
+- RunOCR now operates directly on the Page domain model.
+- OCR records remain associated with the existing OCR storage compatibility model (e.g., using captureId).
+- OCR is triggered asynchronously after screenshot persistence.

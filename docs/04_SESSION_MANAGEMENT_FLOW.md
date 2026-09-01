@@ -1469,3 +1469,12 @@ The following decisions are resolved:
 | **React Presentation Hook** | `src/features/session/hooks/useSession.ts` | Dispatches session messages and manages local React session state. | `useMessageBus` |
 | **React Presentation Views**| `src/features/session/components/ActiveSessionView.tsx`, `NewSessionView.tsx` | Render active session dashboard and new session creation UI. | React components |
 
+
+
+
+## ARCHITECTURE UPDATE: Page Read and Deletion Lifecycle
+
+- **Read Flow:** Active page reads now use the Page repository path. 
+  Service Worker -> PageRepository -> Page[] -> effectiveRenderedImageId -> Thumbnail/UI.
+- **Deletion:** Page deletion handles the Page record, imageId, and 
+enderedImageId. It avoids duplicate deletions when both IDs are identical. Associated OCR records are also cleaned up. Session deletion cascades appropriately across the session, pages, image assets, and OCR records.

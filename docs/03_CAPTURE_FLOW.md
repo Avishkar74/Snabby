@@ -1329,3 +1329,13 @@ The key boundary is:
 > **Capture Stage 1 produces a valid, in-memory AcquiredScreenshot. Downstream persistence, processing, and OCR follow in later stages.**
 
 Implementation status: Session Management and Image Processing have now been finalized and implemented.
+
+
+
+## ARCHITECTURE UPDATE: Page Migration
+
+The active production screenshot creation path now uses CreateScreenshotPage.
+The flow conceptually is:
+\\	ext
+Capture Adapter -> Image Processing -> CreateScreenshotPage -> Page + ImageAsset -> Atomic IndexedDB Persistence -> Asynchronous OCR
+\

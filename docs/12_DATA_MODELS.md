@@ -71,7 +71,29 @@ They can be retrieved using `sessionId`.
 
 ---
 
-# 4. Capture
+
+# 4. Page (formerly Capture)
+
+A page represents one page in a session, which can be a screenshot or a custom canvas.
+
+`	ext
+Page
+├── id: PageId
+├── sessionId: SessionId
+├── type: PageType (SCREENSHOT | CUSTOM)
+├── imageId: ImageId | null
+├── renderedImageId: ImageId
+├── annotationData: unknown | null
+├── version: number
+├── order: number
+├── source: PageSource
+├── createdAt: Timestamp
+└── status: ProcessingStatus
+`
+
+Key invariant: effectiveRenderedImageId dynamically returns 
+enderedImageId (or imageId as fallback).
+
 
 A capture represents one screenshot taken during a session.
 

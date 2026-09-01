@@ -2298,3 +2298,19 @@ These entities map directly to the finalized database schemas implemented in `Da
 
 > **IndexedDB is the durable backbone of Snabby v1: sessions, captures, screenshot data, and OCR results survive independently of React and extension-runtime lifecycles, while repositories isolate the rest of the application from IndexedDB's implementation details.**
 
+
+
+
+## ARCHITECTURE UPDATE: Page Migration (DB Version 2)
+
+- The physical IndexedDB store remains named captures for legacy compatibility.
+- The domain model now uses the Page entity.
+- The database version was upgraded from v1 to v2.
+- Legacy capture records are transparently backfilled during DB migration:
+  - 	ype defaults to SCREENSHOT.
+  - 
+enderedImageId defaults to imageId.
+  - nnotationData defaults to 
+ull.
+  - ersion defaults to 1.
+- The infrastructure layer separates persistence from domain representation using PageRepository, PagePersistenceService, PageMapper, and IndexedDBPageRepository.

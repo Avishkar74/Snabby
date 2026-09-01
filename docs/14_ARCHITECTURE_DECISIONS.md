@@ -646,3 +646,13 @@ The new architecture defines:
 
 Data storage design, LLD, and project structure have now been finalized in documents 15–17.
 
+
+
+
+## ARCHITECTURE UPDATE: Page Domain Model
+
+- **Domain model**: Page.
+- **Physical IndexedDB store**: captures.
+This avoids unnecessary physical store migration risk. 
+**SRP**: Page handles domain invariants; repositories handle persistence access; persistence services handle atomic persistence orchestration; mappers handle domain/storage translation.
+**DIP**: Application use cases depend on Page interfaces.
