@@ -145,12 +145,12 @@ Normalized OCRResult → IndexedDB
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│     CaptureScreenshot (persists capture, then fires OCR)     │
+│     CreateScreenshotPage (persists Page, then fires OCR)       │
 └─────────────────────────────┬────────────────────────────────┘
                               ↓
 ┌──────────────────────────────────────────────────────────────┐
 │     RunOCR — Serial Queue (one job at a time)                 │
-│     - Transitions Capture.status → PROCESSING, saves to DB   │
+│     - Transitions Page.status → PROCESSING, saves to DB      │
 └─────────────────────────────┬────────────────────────────────┘
                               ↓
 ┌──────────────────────────────────────────────────────────────┐
@@ -1299,20 +1299,20 @@ No two OCR operations run concurrently inside Tesseract. However, **captures are
 
 # 44.5. Fire-and-Forget OCR Dispatch
 
-After a capture is persisted, `CaptureScreenshot` fires OCR **without awaiting the result**:
+After a page is persisted, `CreateScreenshotPage` fires OCR **without awaiting the result**:
 
 ```text
-CaptureScreenshot.execute()
+CreateScreenshotPage.execute()
        │
-       ├── Persist Capture + Image (awaited)
+       ├── Persist Page + Image (awaited)
        │
        └── runOCR.execute(input) -- NOT awaited
        │
        ▼
-Returns capture to caller immediately
+Returns page to caller immediately
 ```
 
-The caller receives the persisted `Capture` object right away. OCR completes asynchronously in the background. When it concludes, the Service Worker's decorated `runOCR.execute` wrapper broadcasts either `OCR_COMPLETED` or `OCR_FAILED` to all extension contexts via `broadcastMessage()`.
+The caller receives the persisted `Page` object right away. OCR completes asynchronously in the background. When it concludes, the Service Worker's decorated `runOCR.execute` wrapper broadcasts either `OCR_COMPLETED` or `OCR_FAILED` to all extension contexts via `broadcastMessage()`.
 
 ---
 
@@ -2223,7 +2223,7 @@ All open questions from the initial design have been resolved. The final decisio
 
 | Layer | File Path | Responsibility | Dependencies |
 | :--- | :--- | :--- | :--- |
-| **Application Use Case** | `src/application/ocr/RunOCR.ts` | Orchestrates OCR execution, persists `OCRResult` in `OCRRepository`, updates `Capture.status` to `COMPLETED` or `FAILED`. | `OCRService`, `OCRRepository`, `CaptureRepository` |
+| **Application Use Case** | `src/application/ocr/RunOCR.ts` | Orchestrates OCR execution, persists `OCRResult` in `OCRRepository`, updates `Page.status` to `COMPLETED` or `FAILED`. | `OCRService`, `OCRRepository`, `PageRepository` |
 | **Application Use Case** | `src/application/ocr/GetOCRResult.ts` | Retrieves `OCRResult` by `captureId`. | `OCRRepository` |
 | **Application Interface** | `src/application/interfaces/services/OCRService.ts` | Service boundary contract for OCR execution. | `ImageAsset`, `OCRResult` |
 | **Infrastructure Adapter** | `src/infrastructure/ocr/TesseractOCRAdapter.ts` | Converts image Blob to data URL via `FileReader`, sends OCR request to Offscreen Document over `MessageBus`, normalizes word coordinates. | `MessageBus`, `FileReader` |

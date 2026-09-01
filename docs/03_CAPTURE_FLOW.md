@@ -67,7 +67,9 @@ Service Worker
 Capture Pipeline (same as shortcut)
 ```
 
-Both entry points share the same `captureMode` resolution logic and invoke `CaptureScreenshot.execute()`.
+Both entry points share the same `captureMode` resolution logic and invoke `CreateScreenshotPage.execute()`.
+
+> **Migration state (Task 2.5):** The active production use case is `CreateScreenshotPage`. The legacy `CaptureScreenshot` class still exists in `src/application/capture/CaptureScreenshot.ts` but is no longer invoked by the Service Worker. It will be removed in a later cleanup task once all consumers are confirmed absent.
 
 ---
 
@@ -90,7 +92,7 @@ Both entry points share the same `captureMode` resolution logic and invoke `Capt
 └─────────────┬─────────────┘
               ▼
 ┌───────────────────────────┐
-│     CaptureScreenshot     │
+│   CreateScreenshotPage    │
 │         Use Case          │
 └─────────────┬─────────────┘
               ▼

@@ -39,26 +39,25 @@ const ocrService = new TesseractOCRAdapter(messageBus);
 const pdfService = new PdfLibPDFService(imageRepo, ocrRepo);
 const downloadService = new ChromeDownloadAdapter();
 
-// 3. Instantiate Page Infrastructure (parallel path — not yet active in production)
+// 3. Instantiate Page Infrastructure
 const pageRepo = new IndexedDBPageRepository();
 const pagePersistenceService = new IndexedDBPagePersistenceService();
-// createScreenshotPage is composed and ready but not yet wired into the active capture flow.
-// The active production path remains: captureScreenshot → CaptureRepository / CapturePersistenceService.
-// Exported for use in the next migration task, which will wire this into the active
-// command handler. The active production path remains CaptureScreenshot until that task.
-export const createScreenshotPage = new CreateScreenshotPage(
-  captureAdapter,
-  imageProcessor,
-  pagePersistenceService,
-  pageRepo
-);
 
 // 4. Instantiate Use Cases
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
-const runOCR = new RunOCR(ocrService, ocrRepo, captureRepo);
+// RunOCR uses PageRepository so it can update status on both Capture (via supertype) and Page
+const runOCR = new RunOCR(ocrService, ocrRepo, pageRepo);
 const generatePDF = new GeneratePDF(sessionRepo, captureRepo, ocrRepo, pdfService);
 const downloadPDF = new DownloadPDF(downloadService);
+// The active screenshot creation path. Triggers OCR asynchronously.
+export const createScreenshotPage = new CreateScreenshotPage(
+  captureAdapter,
+  imageProcessor,
+  pagePersistenceService,
+  pageRepo,
+  runOCR
+);
 
 let creatingOffscreenPromise: Promise<void> | null = null;
 
@@ -335,16 +334,16 @@ chrome.commands.onCommand.addListener(async (command) => {
         }
       }
 
-      const result = await captureScreenshot.execute({
+      const result = await createScreenshotPage.execute({
         sessionId: session.id,
         captureMode,
       });
 
-      const captures = await captureRepo.findBySessionId(session.id);
+      const pages = await pageRepo.findBySessionId(session.id);
       broadcastMessage({
         type: 'CAPTURE_COMPLETE',
-        captureId: result.capture.id,
-        count: captures.length
+        captureId: result.page.id,
+        count: pages.length
       });
     } catch (err: any) {
       const errMsg = err?.message || String(err);

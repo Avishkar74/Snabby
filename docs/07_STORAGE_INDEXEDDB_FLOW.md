@@ -69,12 +69,14 @@ IndexedDB
 │
 ├── Sessions
 │
-├── Captures
+├── Captures  ← physical store; also backing the new Page domain model
 │
 ├── Image Assets
 │
 └── OCR Results
 ```
+
+> **Migration state (Task 2.5):** Snabby is transitioning from a `Session → Capture[]` model toward a `Session → Page[]` model. The physical IndexedDB store remains named `captures`. No `DB_VERSION` bump has occurred. The new `Page` domain entity is persisted via `IndexedDBPageRepository` and `IndexedDBPagePersistenceService`, which operate against the same `captures` object store. `PageMapper.toDomain()` interprets legacy records written by the old `CaptureMapper` using explicit field defaults (`type=SCREENSHOT`, `renderedImageId=imageId`, `annotationData=null`, `version=1`). A formal database migration will be addressed in a later checkpoint.
 
 Conceptually:
 

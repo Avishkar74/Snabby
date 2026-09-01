@@ -935,8 +935,9 @@ The finalized Snabby application layer exposes concrete use cases organized by d
 | **Session** | `src/application/session/GetSession.ts` | `execute(id: SessionId): Promise<Session \| null>` | `SessionRepository` |
 | **Session** | `src/application/session/UpdateSession.ts` | `execute(input: UpdateSessionInput): Promise<Session>` | `SessionRepository` |
 | **Session** | `src/application/session/DeleteSession.ts` | `execute(id: SessionId): Promise<void>` | `SessionRepository` |
-| **Capture** | `src/application/capture/CaptureScreenshot.ts` | `execute(input: CaptureScreenshotInput): Promise<CaptureScreenshotOutput>` | `CaptureAdapter`, `ImageProcessor`, `CapturePersistenceService`, `CaptureRepository`, `RunOCR` |
-| **OCR** | `src/application/ocr/RunOCR.ts` | `execute(input: RunOCRInput): Promise<OCRResult>` | `OCRService`, `OCRRepository`, `CaptureRepository` |
+| **Page (active)** | `src/application/page/CreateScreenshotPage.ts` | `execute(input: CreateScreenshotPageInput): Promise<CreateScreenshotPageResult>` | `CaptureAdapter`, `ImageProcessor`, `PagePersistenceService`, `PageRepository`, `RunOCR` |
+| **Capture (legacy, inactive)** | `src/application/capture/CaptureScreenshot.ts` | `execute(input: CaptureScreenshotInput): Promise<CaptureScreenshotOutput>` | `CaptureAdapter`, `ImageProcessor`, `CapturePersistenceService`, `CaptureRepository`, `RunOCR` |
+| **OCR** | `src/application/ocr/RunOCR.ts` | `execute(input: RunOCRInput): Promise<OCRResult>` | `OCRService`, `OCRRepository`, `PageRepository` |
 | **OCR** | `src/application/ocr/GetOCRResult.ts` | `execute(captureId: CaptureId): Promise<OCRResult \| null>` | `OCRRepository` |
 | **PDF** | `src/application/pdf/GeneratePDF.ts` | `execute(input: GeneratePDFInput): Promise<Blob>` | `SessionRepository`, `CaptureRepository`, `OCRRepository`, `PDFService` |
 | **PDF** | `src/application/pdf/DownloadPDF.ts` | `execute(input: DownloadPDFInput): Promise<void>` | `DownloadService` |
