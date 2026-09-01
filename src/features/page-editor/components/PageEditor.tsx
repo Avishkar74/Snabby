@@ -58,7 +58,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       ]);
 
-      // 3. Populate scene with the screenshot & set dark canvas background
+      // 3. Populate scene with screenshot & set dark canvas background
       api.updateScene({
         elements,
         appState: {
@@ -66,12 +66,24 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       });
 
-      // 4. Center and fit viewport to the screenshot page bounds [0, 0, W, H]
+      // 4. Fit viewport to screenshot
       api.scrollToContent(elements, {
         fitToViewport: true,
         viewportZoomFactor: 0.88,
         animate: false,
       });
+
+      // 5. Shift viewport scrollX slightly rightward to preserve useful space on the left for side panels while eliminating excessive right empty void
+      const currentAppState = api.getAppState();
+      if (currentAppState && currentAppState.zoom) {
+        const currentZoom = currentAppState.zoom.value;
+        const shiftX = 55 * currentZoom;
+        api.updateScene({
+          appState: {
+            scrollX: currentAppState.scrollX + shiftX,
+          },
+        });
+      }
     } catch (err) {
       console.error('[PageEditor] Failed to populate scene:', err);
       setError('Failed to display screenshot on canvas');
@@ -202,10 +214,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     return null;
   }
 
-  // Calculate modal container width dynamically based on content to prevent excessive empty space on the right
+  // 1. Calculate modal container width dynamically to eliminate excessive empty space on the right while preserving space on the left for side panels
   const containerWidth = dimensions
-    ? Math.min(window.innerWidth * 0.9, Math.max(840, dimensions.width + 200))
-    : 'min(90vw, 1240px)';
+    ? Math.min(window.innerWidth * 0.88, Math.max(760, dimensions.width + 240))
+    : 'min(86vw, 1140px)';
 
   return (
     <div
@@ -225,7 +237,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '24px',
+        padding: '20px',
         boxSizing: 'border-box',
         pointerEvents: 'auto',
       }}
@@ -243,26 +255,44 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           backgroundColor: '#000000',
           borderRadius: '14px',
           border: '1px solid rgba(255, 255, 255, 0.12)',
-          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08)',
+          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           position: 'relative',
         }}
       >
-        {/* CSS Override: Suppress Excalidraw internal toast overlay over canvas */}
+        {/* CSS Rules:
+            1. Suppress Excalidraw internal toast overlays
+            2. Hide Library button in toolbar
+            3. Hide floating question-mark/help icon in bottom right */}
         <style>{`
           .wsn-editor-modal .excalidraw .toast,
           .wsn-editor-modal .excalidraw .hint-container {
             display: none !important;
           }
+          .wsn-editor-modal .excalidraw label[title*="Library"],
+          .wsn-editor-modal .excalidraw button[title*="Library"],
+          .wsn-editor-modal .excalidraw [data-testid="toolbar-library"],
+          .wsn-editor-modal .excalidraw .library-button,
+          .wsn-editor-modal .excalidraw .sidebar-trigger {
+            display: none !important;
+          }
+          .wsn-editor-modal .excalidraw .help-icon,
+          .wsn-editor-modal .excalidraw button[aria-label*="Help"],
+          .wsn-editor-modal .excalidraw button[title*="Help"],
+          .wsn-editor-modal .excalidraw button[title*="Shortcuts"],
+          .wsn-editor-modal .excalidraw .footer-center,
+          .wsn-editor-modal .excalidraw .encrypted-icon {
+            display: none !important;
+          }
         `}</style>
 
-        {/* 1. Header — Snabby Branding Only */}
+        {/* 5. Header — Authentic Snabby Branding */}
         <div
           className="wsn-editor-header"
           style={{
-            height: '54px',
+            height: '56px',
             backgroundColor: '#000000',
             display: 'flex',
             alignItems: 'center',
@@ -273,35 +303,36 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div className="wsn-header-logo" style={{ width: '38px', height: '38px' }}>
+            <div className="wsn-header-logo" style={{ width: '40px', height: '40px' }}>
               <MascotLogo />
             </div>
             <span
               className="wsn-panel__title"
               style={{
-                fontSize: '22px',
+                fontSize: '24px',
                 fontWeight: 700,
                 color: '#ffffff',
                 margin: 0,
                 letterSpacing: '-0.02em',
+                flex: 'none',
               }}
             >
               Snabby
             </span>
           </div>
 
-          {/* 2. Prominent Red Close Button (Contains ONLY ×) */}
+          {/* 6. Prominent Red Close Button (Contains ONLY ×) */}
           <button
             type="button"
             onClick={onClose}
             style={{
-              width: '32px',
-              height: '32px',
+              width: '34px',
+              height: '34px',
               backgroundColor: '#dc2626',
               border: '1px solid #ef4444',
               borderRadius: '8px',
               color: '#ffffff',
-              fontSize: '20px',
+              fontSize: '22px',
               fontWeight: 'bold',
               cursor: 'pointer',
               lineHeight: 1,
@@ -327,28 +358,27 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           </button>
         </div>
 
-        {/* 6. Guidance Bar ABOVE Toolbar */}
-        <div
-          style={{
-            height: '32px',
-            backgroundColor: '#0a0a0c',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#888888',
-            fontSize: '12px',
-            fontWeight: 400,
-            userSelect: 'none',
-            flexShrink: 0,
-            letterSpacing: '0.01em',
-          }}
-        >
-          <span>Click and drag to annotate on screenshot</span>
-        </div>
+        {/* Workspace Container */}
+        <div style={{ flex: 1, width: '100%', height: 'calc(100% - 56px - 36px)', position: 'relative' }}>
+          {/* 2. Contextual Instruction Floating Directly Above Toolbar in Canvas Space */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '12px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 5,
+              pointerEvents: 'none',
+              color: '#a0a0a0',
+              fontSize: '12px',
+              fontWeight: 400,
+              letterSpacing: '0.01em',
+              userSelect: 'none',
+            }}
+          >
+            Click and drag to annotate on screenshot
+          </div>
 
-        {/* 3 & 4. Excalidraw Workspace Container */}
-        <div style={{ flex: 1, width: '100%', height: 'calc(100% - 54px - 32px - 36px)', position: 'relative' }}>
           <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} />
 
           {loading && (
