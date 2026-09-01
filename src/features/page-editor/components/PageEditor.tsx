@@ -4,6 +4,7 @@ import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import type { FileId } from '@excalidraw/excalidraw/element/types';
 import { useMessageBus } from '../../../app/providers/MessageBusContext.tsx';
 import type { PageEditorProps } from '../types/pageEditor.types.ts';
+import { MascotLogo } from '../../../shared/components/MascotLogo.tsx';
 
 interface PageImageData {
   pageId: string;
@@ -61,14 +62,14 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       api.updateScene({
         elements,
         appState: {
-          viewBackgroundColor: '#121212',
+          viewBackgroundColor: '#0e0e10',
         },
       });
 
       // 4. Center and fit viewport to the screenshot page bounds [0, 0, W, H]
       api.scrollToContent(elements, {
         fitToViewport: true,
-        viewportZoomFactor: 0.85,
+        viewportZoomFactor: 0.88,
         animate: false,
       });
     } catch (err) {
@@ -201,6 +202,11 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     return null;
   }
 
+  // Calculate modal container width dynamically based on content to prevent excessive empty space on the right
+  const containerWidth = dimensions
+    ? Math.min(window.innerWidth * 0.9, Math.max(840, dimensions.width + 200))
+    : 'min(90vw, 1240px)';
+
   return (
     <div
       className="wsn-editor-overlay"
@@ -214,8 +220,8 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         width: '100vw',
         height: '100vh',
         zIndex: 2147483647,
-        backgroundColor: 'rgba(0, 0, 0, 0.65)',
-        backdropFilter: 'blur(3px)',
+        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        backdropFilter: 'blur(4px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -230,113 +236,119 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         className="wsn-editor-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 'min(92vw, 1400px)',
-          height: 'min(88vh, 900px)',
-          maxWidth: '100%',
-          maxHeight: '100%',
-          backgroundColor: '#121212',
-          borderRadius: '12px',
-          border: '1px solid #333333',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+          width: typeof containerWidth === 'number' ? `${containerWidth}px` : containerWidth,
+          height: 'min(88vh, 880px)',
+          maxWidth: '92vw',
+          maxHeight: '94vh',
+          backgroundColor: '#000000',
+          borderRadius: '14px',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           position: 'relative',
         }}
       >
-        {/* Header Bar */}
+        {/* CSS Override: Suppress Excalidraw internal toast overlay over canvas */}
+        <style>{`
+          .wsn-editor-modal .excalidraw .toast,
+          .wsn-editor-modal .excalidraw .hint-container {
+            display: none !important;
+          }
+        `}</style>
+
+        {/* 1. Header — Snabby Branding Only */}
         <div
           className="wsn-editor-header"
           style={{
-            height: '52px',
-            backgroundColor: '#1e1e1e',
+            height: '54px',
+            backgroundColor: '#000000',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '0 20px',
-            color: '#ffffff',
-            borderBottom: '1px solid #333333',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontWeight: 600, fontSize: '15px', color: '#ffffff' }}>Page Editor</span>
-            <span style={{ color: '#555555', fontSize: '14px' }}>•</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="wsn-header-logo" style={{ width: '38px', height: '38px' }}>
+              <MascotLogo />
+            </div>
             <span
+              className="wsn-panel__title"
               style={{
-                fontFamily: 'monospace',
-                fontSize: '12px',
-                color: '#888888',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                fontSize: '22px',
+                fontWeight: 700,
+                color: '#ffffff',
+                margin: 0,
+                letterSpacing: '-0.02em',
               }}
-              title={pageId}
             >
-              {pageId.length > 24 ? `${pageId.substring(0, 24)}...` : pageId}
+              Snabby
             </span>
-
-            {/* Screenshot Boundary Label / Dimension Badge */}
-            {dimensions && (
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  borderRadius: '6px',
-                  padding: '3px 10px',
-                  fontSize: '12px',
-                  color: '#cccccc',
-                  fontWeight: 500,
-                  marginLeft: '4px',
-                }}
-              >
-                <span>Screenshot</span>
-                <span style={{ color: '#666666' }}>•</span>
-                <span style={{ color: '#ffffff', fontWeight: 600 }}>
-                  {dimensions.width} &times; {dimensions.height}
-                </span>
-              </div>
-            )}
           </div>
 
+          {/* 2. Prominent Red Close Button (Contains ONLY ×) */}
           <button
             type="button"
             onClick={onClose}
             style={{
-              background: 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid rgba(239, 68, 68, 0.4)',
-              color: '#ef4444',
-              fontSize: '18px',
+              width: '32px',
+              height: '32px',
+              backgroundColor: '#dc2626',
+              border: '1px solid #ef4444',
+              borderRadius: '8px',
+              color: '#ffffff',
+              fontSize: '20px',
               fontWeight: 'bold',
               cursor: 'pointer',
               lineHeight: 1,
-              padding: '4px 10px',
-              borderRadius: '6px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               transition: 'all 0.15s ease',
+              boxShadow: '0 2px 6px rgba(220, 38, 38, 0.4)',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#ef4444';
-              e.currentTarget.style.color = '#ffffff';
+              e.currentTarget.style.backgroundColor = '#ef4444';
+              e.currentTarget.style.boxShadow = '0 0 12px rgba(239, 68, 68, 0.6)';
+              e.currentTarget.style.transform = 'scale(1.05)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
-              e.currentTarget.style.color = '#ef4444';
+              e.currentTarget.style.backgroundColor = '#dc2626';
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.4)';
+              e.currentTarget.style.transform = 'scale(1)';
             }}
-            title="Close Editor"
+            aria-label="Close"
           >
             &times;
           </button>
         </div>
 
-        {/* Workspace Body */}
-        <div style={{ flex: 1, width: '100%', height: 'calc(100% - 52px - 36px)', position: 'relative' }}>
+        {/* 6. Guidance Bar ABOVE Toolbar */}
+        <div
+          style={{
+            height: '32px',
+            backgroundColor: '#0a0a0c',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#888888',
+            fontSize: '12px',
+            fontWeight: 400,
+            userSelect: 'none',
+            flexShrink: 0,
+            letterSpacing: '0.01em',
+          }}
+        >
+          <span>Click and drag to annotate on screenshot</span>
+        </div>
+
+        {/* 3 & 4. Excalidraw Workspace Container */}
+        <div style={{ flex: 1, width: '100%', height: 'calc(100% - 54px - 32px - 36px)', position: 'relative' }}>
           <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} />
 
           {loading && (
@@ -344,12 +356,12 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
               style={{
                 position: 'absolute',
                 inset: 0,
-                backgroundColor: 'rgba(18, 18, 18, 0.75)',
+                backgroundColor: 'rgba(12, 12, 14, 0.85)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#ffffff',
-                fontSize: '16px',
+                fontSize: '15px',
                 fontWeight: 500,
                 zIndex: 10,
                 pointerEvents: 'none',
@@ -398,13 +410,13 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           )}
         </div>
 
-        {/* User-Friendly Bounds Guidance Footer */}
+        {/* 7. Exact User-Friendly Bounds Guidance Footer */}
         <div
           className="wsn-editor-bounds-footer"
           style={{
             height: '36px',
-            backgroundColor: '#181818',
-            borderTop: '1px solid #2a2a2a',
+            backgroundColor: '#000000',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
