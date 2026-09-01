@@ -2,7 +2,6 @@ import { IndexedDBCaptureRepository } from '../infrastructure/indexeddb/reposito
 import { IndexedDBImageRepository } from '../infrastructure/indexeddb/repositories/IndexedDBImageRepository.ts';
 import { IndexedDBOCRRepository } from '../infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts';
 import { IndexedDBSessionRepository } from '../infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts';
-import { IndexedDBCapturePersistenceService } from '../infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts';
 import { IndexedDBPageRepository } from '../infrastructure/indexeddb/repositories/IndexedDBPageRepository.ts';
 import { IndexedDBPagePersistenceService } from '../infrastructure/indexeddb/services/IndexedDBPagePersistenceService.ts';
 
@@ -15,7 +14,6 @@ import { ChromeDownloadAdapter } from '../infrastructure/chrome/downloads/Chrome
 
 import { CreateSession } from '../application/session/CreateSession.ts';
 import { DeleteSession } from '../application/session/DeleteSession.ts';
-import { CaptureScreenshot } from '../application/capture/CaptureScreenshot.ts';
 import { CreateScreenshotPage } from '../application/page/CreateScreenshotPage.ts';
 import { RunOCR } from '../application/ocr/RunOCR.ts';
 import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
@@ -34,7 +32,6 @@ const imageRepo = new IndexedDBImageRepository();
 const messageBus = new ChromeMessageBus();
 const captureAdapter = new ChromeCaptureAdapter();
 const imageProcessor = new BrowserImageProcessor();
-const persistenceService = new IndexedDBCapturePersistenceService();
 const ocrService = new TesseractOCRAdapter(messageBus);
 const pdfService = new PdfLibPDFService(imageRepo, ocrRepo);
 const downloadService = new ChromeDownloadAdapter();
@@ -138,14 +135,6 @@ runOCR.execute = async (input) => {
     throw err;
   }
 };
-
-const captureScreenshot = new CaptureScreenshot(
-  captureAdapter,
-  imageProcessor,
-  persistenceService,
-  captureRepo,
-  runOCR
-);
 
 // Settings Helper (stored in chrome.storage.local)
 interface Settings {
@@ -567,21 +556,21 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               }
             }
 
-            const result = await captureScreenshot.execute({
+            const result = await createScreenshotPage.execute({
               sessionId: session.id,
               captureMode,
             });
 
-            const updatedCaptures = await captureRepo.findBySessionId(session.id);
+            const updatedPages = await pageRepo.findBySessionId(session.id);
             broadcastMessage({
               type: 'CAPTURE_COMPLETE',
-              captureId: result.capture.id,
-              count: updatedCaptures.length
+              captureId: result.page.id,
+              count: updatedPages.length
             });
 
             return {
               success: true,
-              data: { capture: result.capture }
+              data: { capture: result.page }
             };
           } finally {
             isCapturing = false;
