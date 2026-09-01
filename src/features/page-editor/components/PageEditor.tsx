@@ -40,20 +40,9 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       ]);
 
-      // 2. Create Page Frame & Bounded Image Element locked at origin (0, 0)
+      // 2. Create Bounded Screenshot Image Element locked at origin (0, 0)
       const imageElementId = `image_${imgData.pageId}`;
-      const frameId = `frame_${imgData.pageId}`;
       const elements = convertToExcalidrawElements([
-        {
-          type: 'frame',
-          id: frameId as any,
-          x: 0,
-          y: 0,
-          width: imgData.width,
-          height: imgData.height,
-          name: `Page (${imgData.width} × ${imgData.height})`,
-          children: [imageElementId],
-        },
         {
           type: 'image',
           id: imageElementId as any,
@@ -64,7 +53,6 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           fileId,
           status: 'saved',
           locked: true,
-          frameId,
         },
       ]);
 
