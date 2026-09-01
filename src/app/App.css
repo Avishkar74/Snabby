@@ -111,7 +111,7 @@
   align-items: center;
   padding: 16px 20px 20px 20px;
   border-bottom: 1px solid #ffffff;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
 }
 .wsn-header-logo {
@@ -1008,4 +1008,21 @@
   border-radius: 6px;
   font-size: 13px;
   text-align: left;
+}
+
+/* ─── Excalidraw Editor Modal Overrides ─── */
+.wsn-editor-modal .excalidraw .toast,
+.wsn-editor-modal .excalidraw .hint-container,
+.wsn-editor-modal .excalidraw .excalidraw-hint,
+.wsn-editor-modal .excalidraw [class*="hint"] {
+  display: none !important;
+}
+
+.wsn-editor-modal .excalidraw .dropdown-menu-button,
+.wsn-editor-modal .excalidraw [data-testid="dropdown-menu-button"],
+.wsn-editor-modal .excalidraw label[title*="Library"],
+.wsn-editor-modal .excalidraw button[title*="Library"],
+.wsn-editor-modal .excalidraw .help-icon,
+.wsn-editor-modal .excalidraw .footer-center {
+  display: none !important;
 }

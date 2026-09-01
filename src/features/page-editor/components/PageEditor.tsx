@@ -66,24 +66,18 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       });
 
-      // 4. Fit viewport to screenshot
-      api.scrollToContent(elements, {
-        fitToViewport: true,
-        viewportZoomFactor: 0.88,
-        animate: false,
-      });
-
-      // 5. Shift viewport scrollX slightly rightward to preserve useful space on the left for side panels while eliminating excessive right empty void
-      const currentAppState = api.getAppState();
-      if (currentAppState && currentAppState.zoom) {
-        const currentZoom = currentAppState.zoom.value;
-        const shiftX = 55 * currentZoom;
-        api.updateScene({
-          appState: {
-            scrollX: currentAppState.scrollX + shiftX,
-          },
-        });
-      }
+      // 4. Fit viewport cleanly to screenshot (natively centers screenshot in middle of modal canvas)
+      setTimeout(() => {
+        try {
+          api.scrollToContent(elements, {
+            fitToViewport: true,
+            viewportZoomFactor: 0.85,
+            animate: false,
+          });
+        } catch (e) {
+          // ignore if unmounted
+        }
+      }, 50);
     } catch (err) {
       console.error('[PageEditor] Failed to populate scene:', err);
       setError('Failed to display screenshot on canvas');
@@ -215,9 +209,9 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   }
 
   // 1. Calculate modal container width dynamically to eliminate excessive empty space on the right while preserving space on the left for side panels
-  const containerWidth = dimensions
-    ? Math.min(window.innerWidth * 0.88, Math.max(760, dimensions.width + 240))
-    : 'min(86vw, 1140px)';
+const containerWidth = dimensions
+  ? Math.min(window.innerWidth * 0.82, Math.max(760, dimensions.width + 200))
+  : 'min(82vw, 1050px)';
 
   return (
     <div
@@ -249,7 +243,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         onClick={(e) => e.stopPropagation()}
         style={{
           width: typeof containerWidth === 'number' ? `${containerWidth}px` : containerWidth,
-          height: 'min(88vh, 880px)',
+          height: 'min(95vh, 950px)',
           maxWidth: '92vw',
           maxHeight: '94vh',
           backgroundColor: '#000000',
@@ -302,19 +296,21 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <div className="wsn-header-logo" style={{ width: '40px', height: '40px' }}>
               <MascotLogo />
             </div>
             <span
               className="wsn-panel__title"
               style={{
-                fontSize: '24px',
+                fontSize: '26px',
                 fontWeight: 700,
                 color: '#ffffff',
                 margin: 0,
-                letterSpacing: '-0.02em',
-                flex: 'none',
+                textShadow: '0 1px 2px #0000004d',
+                letterSpacing: '-.02em',
+                flex: '1',
+                fontFamily: 'Poppins, Montserrat, Segoe UI, Arial, cursive, sans-serif'
               }}
             >
               Snabby
@@ -360,24 +356,21 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
 
         {/* Workspace Container */}
         <div style={{ flex: 1, width: '100%', height: 'calc(100% - 56px - 36px)', position: 'relative' }}>
-          {/* 2. Contextual Instruction Floating Directly Above Toolbar in Canvas Space */}
-          <div
-            style={{
-              position: 'absolute',
-              top: '12px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 5,
-              pointerEvents: 'none',
-              color: '#a0a0a0',
-              fontSize: '12px',
-              fontWeight: 400,
-              letterSpacing: '0.01em',
-              userSelect: 'none',
-            }}
-          >
-            Click and drag to annotate on screenshot
-          </div>
+          <style>{`
+            .wsn-editor-modal .excalidraw .toast,
+            .wsn-editor-modal .excalidraw .toast-container,
+            .wsn-editor-modal .excalidraw .hint-container,
+            .wsn-editor-modal .excalidraw .excalidraw-hint,
+            .wsn-editor-modal .excalidraw [class*="toast"],
+            .wsn-editor-modal .excalidraw [class*="Toast"],
+            .wsn-editor-modal .excalidraw [class*="hint"],
+            .wsn-editor-modal .excalidraw [class*="Hint"] {
+              display: none !important;
+              opacity: 0 !important;
+              visibility: hidden !important;
+              pointer-events: none !important;
+            }
+          `}</style>
 
           <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} />
 
@@ -444,23 +437,25 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         <div
           className="wsn-editor-bounds-footer"
           style={{
-            height: '36px',
+            height: '42px',
             backgroundColor: '#000000',
             borderTop: '1px solid rgba(255, 255, 255, 0.1)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '8px',
+            gap: '10px',
             padding: '0 16px',
-            color: '#aaaaaa',
-            fontSize: '12px',
+            color: '#ffffff',
+            fontSize: '14px',
+            fontWeight: 500,
+            opacity: 0.95,
             flexShrink: 0,
             userSelect: 'none',
           }}
         >
           <svg
-            width="14"
-            height="14"
+            width="16"
+            height="16"
             viewBox="0 0 24 24"
             fill="none"
             stroke="#60a5fa"
