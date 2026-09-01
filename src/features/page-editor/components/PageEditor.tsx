@@ -104,25 +104,43 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       ]);
 
-      // 2. Create Excalidraw Image Element
+      // 2. Create Page Frame & Bounded Image Element locked at origin (0, 0)
+      const imageElementId = `image_${imageData.pageId}`;
+      const frameId = `frame_${imageData.pageId}`;
       const elements = convertToExcalidrawElements([
         {
+          type: 'frame',
+          id: frameId as any,
+          x: 0,
+          y: 0,
+          width: imageData.width,
+          height: imageData.height,
+          name: `Page (${imageData.width} × ${imageData.height})`,
+          children: [imageElementId],
+        },
+        {
           type: 'image',
+          id: imageElementId as any,
           x: 0,
           y: 0,
           width: imageData.width,
           height: imageData.height,
           fileId,
           status: 'saved',
+          locked: true,
+          frameId,
         },
       ]);
 
-      // 3. Update scene with the new screenshot image element
+      // 3. Update scene with the framed screenshot image element & canvas background
       excalidrawAPI.updateScene({
         elements,
+        appState: {
+          viewBackgroundColor: '#121212',
+        },
       });
 
-      // 4. Center and fit viewport to the loaded screenshot
+      // 4. Center and fit viewport to the page frame bounds [0, 0, W, H]
       excalidrawAPI.scrollToContent(elements, {
         fitToViewport: true,
         viewportZoomFactor: 0.85,
