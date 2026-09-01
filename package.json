@@ -12,6 +12,7 @@
     "placeholder": "echo 'TODO: implement placeholder script'"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "pdf-lib": "^1.17.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

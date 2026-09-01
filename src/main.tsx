@@ -6,6 +6,7 @@ import { MessageBusProvider } from './app/providers/MessageBusContext.tsx';
 
 // Import ONLY the Snabby content UI CSS (ported from original getStyles())
 import appCss from './app/App.css?inline';
+import excalidrawCss from '@excalidraw/excalidraw/index.css?inline';
 
 if (!document.getElementById('wsn-root')) {
   const host = document.createElement('div');
@@ -15,9 +16,9 @@ if (!document.getElementById('wsn-root')) {
 
   const shadow = host.attachShadow({ mode: 'open' });
 
-  // Inject only the Snabby-specific styles — NO generic index.css
+  // Inject Snabby-specific styles & Excalidraw styles into Shadow DOM
   const styleEl = document.createElement('style');
-  styleEl.textContent = appCss;
+  styleEl.textContent = appCss + '\n' + excalidrawCss;
   shadow.appendChild(styleEl);
 
   const container = document.createElement('div');
