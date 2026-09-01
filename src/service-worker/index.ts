@@ -3,6 +3,8 @@ import { IndexedDBImageRepository } from '../infrastructure/indexeddb/repositori
 import { IndexedDBOCRRepository } from '../infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts';
 import { IndexedDBSessionRepository } from '../infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts';
 import { IndexedDBCapturePersistenceService } from '../infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts';
+import { IndexedDBPageRepository } from '../infrastructure/indexeddb/repositories/IndexedDBPageRepository.ts';
+import { IndexedDBPagePersistenceService } from '../infrastructure/indexeddb/services/IndexedDBPagePersistenceService.ts';
 
 import { ChromeCaptureAdapter } from '../infrastructure/chrome/capture/ChromeCaptureAdapter.ts';
 import { BrowserImageProcessor } from '../infrastructure/image/BrowserImageProcessor.ts';
@@ -14,6 +16,7 @@ import { ChromeDownloadAdapter } from '../infrastructure/chrome/downloads/Chrome
 import { CreateSession } from '../application/session/CreateSession.ts';
 import { DeleteSession } from '../application/session/DeleteSession.ts';
 import { CaptureScreenshot } from '../application/capture/CaptureScreenshot.ts';
+import { CreateScreenshotPage } from '../application/page/CreateScreenshotPage.ts';
 import { RunOCR } from '../application/ocr/RunOCR.ts';
 import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
 import { DownloadPDF } from '../application/pdf/DownloadPDF.ts';
@@ -36,7 +39,21 @@ const ocrService = new TesseractOCRAdapter(messageBus);
 const pdfService = new PdfLibPDFService(imageRepo, ocrRepo);
 const downloadService = new ChromeDownloadAdapter();
 
-// 3. Instantiate Use Cases
+// 3. Instantiate Page Infrastructure (parallel path — not yet active in production)
+const pageRepo = new IndexedDBPageRepository();
+const pagePersistenceService = new IndexedDBPagePersistenceService();
+// createScreenshotPage is composed and ready but not yet wired into the active capture flow.
+// The active production path remains: captureScreenshot → CaptureRepository / CapturePersistenceService.
+// Exported for use in the next migration task, which will wire this into the active
+// command handler. The active production path remains CaptureScreenshot until that task.
+export const createScreenshotPage = new CreateScreenshotPage(
+  captureAdapter,
+  imageProcessor,
+  pagePersistenceService,
+  pageRepo
+);
+
+// 4. Instantiate Use Cases
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
 const runOCR = new RunOCR(ocrService, ocrRepo, captureRepo);
