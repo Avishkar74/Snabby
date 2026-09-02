@@ -11,6 +11,7 @@ async function runBuild() {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      chunkSizeWarningLimit: 2000,
       rollupOptions: {
         input: {
           offscreen: resolve(import.meta.dirname, 'src/infrastructure/ocr/offscreen/offscreen.html'),
@@ -35,6 +36,7 @@ async function runBuild() {
     build: {
       outDir: 'dist',
       emptyOutDir: false,
+      chunkSizeWarningLimit: 10000,
       rollupOptions: {
         input: resolve(import.meta.dirname, 'src/main.tsx'),
         output: {
@@ -42,6 +44,10 @@ async function runBuild() {
           name: 'SnabbyUI',
           entryFileNames: 'assets/popup.js',
           inlineDynamicImports: true,
+        },
+        onwarn(warning, warn) {
+          if (warning.code === 'EMPTY_IMPORT_META') return;
+          warn(warning);
         },
       },
     },

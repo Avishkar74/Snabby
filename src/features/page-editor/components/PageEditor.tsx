@@ -5,6 +5,7 @@ import type { FileId } from '@excalidraw/excalidraw/element/types';
 import { useMessageBus } from '../../../app/providers/MessageBusContext.tsx';
 import type { PageEditorProps } from '../types/pageEditor.types.ts';
 import { MascotLogo } from '../../../shared/components/MascotLogo.tsx';
+import { renderBoundedPageImage } from '../utils/renderBoundedPageImage.ts';
 
 interface PageImageData {
   pageId: string;
@@ -23,6 +24,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
 
   // imageData drives rendering — Excalidraw only mounts after this is set
   const [imageData, setImageData] = useState<PageImageData | null>(null);
+  
+  // Track imageData in a ref so flushPendingSave has access to it synchronously
+  const imageDataRef = useRef<PageImageData | null>(null);
+  imageDataRef.current = imageData;
 
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const activePageIdRef = useRef<string | null>(pageId);
@@ -31,7 +36,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   const pendingAnnotationRef = useRef<{ pageId: string; annotationData: string | null } | null>(null);
   const lastSavedAnnotationDataRef = useRef<string | null>(null);
 
-  // ─── Synchronous flush – saves pending annotations immediately on close ───
+  // ─── Flush function – saves pending annotations and bounded rendered image ───
   const flushPendingSave = useCallback(() => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -40,19 +45,39 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
 
     if (pendingAnnotationRef.current) {
       const { pageId: targetPageId, annotationData } = pendingAnnotationRef.current;
+      pendingAnnotationRef.current = null;
+
       if (annotationData !== lastSavedAnnotationDataRef.current) {
         lastSavedAnnotationDataRef.current = annotationData;
-        try {
-          messageBus.send({
-            type: 'SAVE_PAGE_ANNOTATIONS',
-            pageId: targetPageId,
-            annotationData,
-          } as any);
-        } catch (err) {
-          console.error('[PageEditor] Failed to flush page annotations:', err);
-        }
+
+        const currentImgData = imageDataRef.current;
+        (async () => {
+          try {
+            let renderedImageData = null;
+            if (annotationData && currentImgData && currentImgData.pageId === targetPageId) {
+              renderedImageData = await renderBoundedPageImage(
+                currentImgData.dataUrl,
+                currentImgData.width,
+                currentImgData.height,
+                currentImgData.mimeType,
+                annotationData
+              );
+            }
+
+            // Stale async protection: ensure active page hasn't changed
+            if (activePageIdRef.current !== targetPageId) return;
+
+            await messageBus.request({
+              type: 'SAVE_PAGE_ANNOTATIONS',
+              pageId: targetPageId,
+              annotationData,
+              renderedImageData,
+            } as any);
+          } catch (err) {
+            console.error('[PageEditor] Failed to save page annotations & rendered image:', err);
+          }
+        })();
       }
-      pendingAnnotationRef.current = null;
     }
   }, [messageBus]);
 
@@ -134,10 +159,9 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       const currentPageId = activePageIdRef.current;
       if (!currentPageId || !imageData || imageData.pageId !== currentPageId) return;
 
-      const bgImageId = `image_${currentPageId}`;
-      // Filter out locked screenshot background and any deleted elements
+      // Filter out the locked screenshot background (which is always an image) and any deleted elements
       const userElements = elements.filter(
-        (el) => el.id !== bgImageId && !el.isDeleted
+        (el) => el.type !== 'image' && !el.isDeleted
       );
 
       const annotationData = userElements.length > 0 ? JSON.stringify(userElements) : null;
@@ -233,10 +257,25 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     };
   }, [pageId, handleClose]);
 
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const mouseDownTargetRef = useRef<EventTarget | null>(null);
+
+  const handleOverlayMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    mouseDownTargetRef.current = e.target;
+  };
+
+  const handleOverlayMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    // Only close if both mousedown AND mouseup happened directly on the dark overlay background
+    if (
+      overlayRef.current &&
+      e.target === overlayRef.current &&
+      mouseDownTargetRef.current === overlayRef.current
+    ) {
       handleClose();
     }
+    mouseDownTargetRef.current = null;
   };
 
   if (!pageId) {
@@ -250,8 +289,13 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
 
   return (
     <div
+      ref={overlayRef}
       className="wsn-editor-overlay"
-      onClick={handleOverlayClick}
+      onMouseDown={handleOverlayMouseDown}
+      onMouseUp={handleOverlayMouseUp}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
         top: 0,

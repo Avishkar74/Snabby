@@ -46,7 +46,7 @@ const pagePersistenceService = new IndexedDBPagePersistenceService();
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
 const getPageEditorImage = new GetPageEditorImage(pageRepo, imageRepo);
-const savePageAnnotations = new SavePageAnnotations(pageRepo);
+const savePageAnnotations = new SavePageAnnotations(pageRepo, imageRepo);
 // RunOCR uses PageRepository so it can update status on both Capture (via supertype) and Page
 const runOCR = new RunOCR(ocrService, ocrRepo, pageRepo);
 const generatePDF = new GeneratePDF(sessionRepo, pageRepo, ocrRepo, pdfService);
@@ -523,7 +523,10 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           };
         }
         case 'SAVE_PAGE_ANNOTATIONS': {
-          const success = await savePageAnnotations.execute(message.pageId as any, message.annotationData as any);
+          const success = await savePageAnnotations.execute(message.pageId as any, message.annotationData as any, message.renderedImageData as any);
+          if (success && message.renderedImageData) {
+            broadcastMessage({ type: 'SESSION_UPDATED' });
+          }
           return { success };
         }
         case 'CHECK_OCR_STATUS': {

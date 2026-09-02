@@ -236,7 +236,7 @@ export const App: React.FC = () => {
       <FloatingMascot onTogglePanel={togglePanel} />
 
       {/* Backdrop — click-catcher when panel is open */}
-      {panelOpen && (
+      {panelOpen && !editingPageId && (
         <div className="wsn-backdrop" onClick={closePanel}></div>
       )}
 
