@@ -1324,6 +1324,89 @@ Focused application commands
 
 This is deliberate.
 
+---
+
+# 43. Page Editor Message Schemas
+
+### 43.1 `GET_PAGE_EDITOR_IMAGE`
+
+#### Request
+```ts
+{
+  type: "GET_PAGE_EDITOR_IMAGE",
+  pageId: string,
+  requestId?: string
+}
+```
+
+#### Response (Success)
+```ts
+{
+  success: true,
+  data: {
+    pageId: string,
+    imageId: string,
+    dataUrl: string,      // Raw base64 data URL of original screenshot background
+    width: number,        // Original image width in pixels
+    height: number,       // Original image height in pixels
+    mimeType: string,     // 'image/png' or 'image/jpeg'
+    annotationData: string | null // Serialized Excalidraw element JSON string if present
+  }
+}
+```
+
+#### Response (Failure)
+```ts
+{
+  success: false,
+  error: {
+    code: "PAGE_OR_IMAGE_NOT_FOUND",
+    message: string,
+    operation: "GET_PAGE_EDITOR_IMAGE"
+  }
+}
+```
+
+---
+
+### 43.2 `SAVE_PAGE_ANNOTATIONS`
+
+#### Request
+```ts
+{
+  type: "SAVE_PAGE_ANNOTATIONS",
+  pageId: string,
+  annotationData: string | null, // Serialized Excalidraw vector elements JSON
+  renderedImageData?: string | null, // Base64 data URL of bounded composite image
+  requestId?: string
+}
+```
+
+#### Response (Success)
+```ts
+{
+  success: true
+}
+```
+
+#### Response (Failure)
+```ts
+{
+  success: false,
+  error: {
+    code: "OPERATION_FAILED",
+    message: string,
+    operation: "SAVE_PAGE_ANNOTATIONS"
+  }
+}
+```
+
+#### Side Effects
+- Upon successful execution with `renderedImageData`, Service Worker broadcasts `SESSION_UPDATED` event to all UI contexts to trigger thumbnail refreshes.
+
+---
+
 > **The communication layer should contain only messages that represent real v1 behavior. Unused, legacy, phone-upload, P2P, and OCR-progress messages are not carried into the new architecture.**
+
 
 This gives us a stable communication contract to implement against while keeping the React, Service Worker, and Offscreen responsibilities clearly separated.

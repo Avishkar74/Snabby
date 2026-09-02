@@ -42,38 +42,28 @@ Image Processing
 OCR Processing
   │
   ▼
-Persist OCR Result
-  │
-  ▼
 Capture Available in React UI
   │
-  ├───────────────┐
-  │               │
-  ▼               ▼
-Capture Again   Manage Captures
-  │               │
-  │          ┌────┴─────┐
-  │          ▼          ▼
-  │       Reorder     Delete
-  │
-  └───────────────┐
+  ├───────────────┬─────────────────┐
+  │               │                 │
+  ▼               ▼                 ▼
+Capture Again   Manage Captures   Edit Page (Excalidraw)
+  │               │                 │
+  │          ┌────┴─────┐           ├── Draw / Annotate
+  │          ▼          ▼           ├── Save Vector JSON (annotationData)
+  │       Reorder     Delete        └── Render Bounded Image (renderedImageId)
+  │                                 │
+  └───────────────┬─────────────────┘
                   ▼
              Download PDF
                   │
                   ▼
-           Load Session Data
+           Load Session Data (using page.effectiveRenderedImageId)
                   │
                   ▼
            Generate PDF
                   │
                   ▼
-          Add Screenshot Pages
-                  │
-                  ▼
-          Add OCR Text Layer
-                  │
-                  ▼
-              PDF Blob
                   │
                   ▼
               Download

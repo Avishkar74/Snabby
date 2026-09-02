@@ -41,7 +41,7 @@ The responsibilities are split between the application use case and the infrastr
 - **PdfLibPDFService (Infrastructure Layer)**:
   - Receives the loaded `Session` and ordered `Capture`s.
   - Sequentially loops over each capture.
-  - Loads the raw screenshot `Image` Blob from `ImageRepository`.
+  - Loads the image asset from `ImageRepository` using `page.effectiveRenderedImageId` (which resolves to `renderedImageId` if annotated, or original `imageId` otherwise).
   - Loads the `OCRResult` (if available) from `OCRRepository`.
   - Performs scaling and coordinate translation.
   - Employs `pdf-lib` to create pages, embed graphics, overlay transparent OCR text layers, and compile the final PDF `Blob`.

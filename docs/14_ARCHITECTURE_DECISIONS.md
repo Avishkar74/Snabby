@@ -642,17 +642,35 @@ The new architecture defines:
 
 ---
 
+| Page Editor            | Excalidraw vector canvas         |
+| Annotation Storage     | Dual model: `annotationData` + `renderedImageId` |
+| Bounds Model           | Infinite live editing + bounded output compositing |
+| Export Dark Mode       | `exportWithDarkMode: true` for color parity |
+
+---
+
 ## Implementation Status
 
-Data storage design, LLD, and project structure have now been finalized in documents 15–17.
+Data storage design, LLD, project structure, and Page Editor architecture have been finalized in documents 15–19.
 
+---
 
+## ARCHITECTURE UPDATE: Page Domain Model & Page Editor Subsystem
 
-
-## ARCHITECTURE UPDATE: Page Domain Model
-
-- **Domain model**: Page.
-- **Physical IndexedDB store**: captures.
-This avoids unnecessary physical store migration risk. 
-**SRP**: Page handles domain invariants; repositories handle persistence access; persistence services handle atomic persistence orchestration; mappers handle domain/storage translation.
-**DIP**: Application use cases depend on Page interfaces.
+- **Domain Entity (`Page`)**: Replaced raw capture concept with `Page` supporting `SCREENSHOT` and `CUSTOM` types.
+- **Physical IndexedDB Store**: Named `captures` for schema back-compatibility.
+- **Dual Representation Model**:
+  - `Page.annotationData`: Stores Excalidraw element JSON string for editing.
+  - `Page.renderedImageId`: Stores flattened, cropped composite `ImageAsset` ID in `images` store.
+- **Image Resolution Rule**:
+  - `effectiveRenderedImageId` dynamically evaluates `renderedImageId ?? imageId`. Side panel thumbnails, lightbox previews, and PDF generation transparently query this property.
+- **Infinite Live Canvas + Bounded Render Output**:
+  - Excalidraw canvas is permitted to remain live infinite to maintain UX quality.
+  - `renderBoundedPageImage` clips output to `(0, 0) -> (originalWidth, originalHeight)`.
+- **Dark Mode Export Parity**:
+  - Excalidraw canvas exporter specifies `exportWithDarkMode: true` to prevent color inversion discrepancies between editing and visual preview.
+- **SRP & SOLID Enforcement**:
+  - `Page`: Owns domain invariants and `effectiveRenderedImageId`.
+  - `PageEditor`: Manages React modal UI and debounced auto-save.
+  - `renderBoundedPageImage`: Owns HTML5 Canvas compositing and cropping math.
+  - `SavePageAnnotations`: Owns use case execution, `ImageAsset` persistence, and old image asset cleanup.

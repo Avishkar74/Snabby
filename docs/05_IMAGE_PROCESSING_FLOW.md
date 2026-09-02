@@ -1292,15 +1292,52 @@ The complete conceptual flow is:
           Validate Final Image
                  │
                  ▼
-### Component Source Map
-
 | Layer | File Path | Responsibility | Dependencies |
 | :--- | :--- | :--- | :--- |
 | **Domain Models** | `src/domain/image/image.types.ts` | Type contracts for `ImageAsset`, `ImageDimensions`, and `ProcessedImage`. | None |
 | **Application Interface** | `src/application/interfaces/services/ImageProcessor.ts` | Interface contract for image validation and dimension extraction. | `ImageAsset` |
 | **Infrastructure Adapter** | `src/infrastructure/image/BrowserImageProcessor.ts` | Implements `ImageProcessor` using `createImageBitmap` for Service Worker execution. | `createImageBitmap` |
+| **UI Compositing Utility** | `src/features/page-editor/utils/renderBoundedPageImage.ts` | Composites Excalidraw vector elements over raw screenshot and crops to original dimensions. | `@excalidraw/excalidraw` (`exportToCanvas`), HTML5 Canvas 2D |
 
 ---
 
-> **Image processing establishes the canonical image representation and coordinate system that downstream OCR and PDF generation can safely rely on.**
+# 46. Bounded Annotation Image Compositing (`renderBoundedPageImage`)
+
+When a user saves vector annotations created in the Page Editor, the raw vector elements must be composited onto the original screenshot to produce a flattened visual asset.
+
+### Pipeline Flow
+
+```text
+  Page.annotationData (Excalidraw JSON) + Original Screenshot Data URL
+                                 │
+                                 ▼
+1. Filter out screenshot element (el.type !== 'image')
+                                 │
+                                 ▼
+2. exportToCanvas({ elements, appState: { exportWithDarkMode: true, theme: 'dark' } })
+                                 │
+                                 ▼
+3. Compute Element Bounding Box (minX, minY)
+                                 │
+                                 ▼
+4. Allocate Output HTML5 Canvas (originalWidth × originalHeight)
+                                 │
+                                 ▼
+5. Draw Raw Screenshot at (0, 0)
+                                 │
+                                 ▼
+6. Draw Excalidraw Canvas at (minX - EXCALIDRAW_EXPORT_PADDING, minY - EXCALIDRAW_EXPORT_PADDING)
+                                 │
+                                 ▼
+7. Convert to Data URL (toDataURL(mimeType, 0.92))
+```
+
+### Key Constraints & Guarantees
+- **Crop Invariant**: The final canvas dimensions match `originalWidth` × `originalHeight` exactly. Any drawing elements or portions lying outside `[0..originalWidth, 0..originalHeight]` are cropped out.
+- **Padding Compensation**: Excalidraw's `exportToCanvas` adds a 10px export margin (`EXCALIDRAW_EXPORT_PADDING = 10`). The compositing algorithm offsets by `minX - 10` and `minY - 10` to maintain absolute spatial alignment with the screenshot.
+- **Color Parity**: Setting `exportWithDarkMode: true` ensures dark-mode color inversions applied during editing are accurately reproduced in the exported image.
+
+---
+
+> **Image processing establishes the canonical image representation and coordinate system that downstream OCR, page editing, and PDF generation can safely rely on.**
 

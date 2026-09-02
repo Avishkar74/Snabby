@@ -72,41 +72,43 @@ They can be retrieved using `sessionId`.
 ---
 
 
-# 4. Page (formerly Capture)
+# 4. Page
 
 A page represents one page in a session, which can be a screenshot or a custom canvas.
 
-`	ext
+```text
 Page
 ├── id: PageId
 ├── sessionId: SessionId
 ├── type: PageType (SCREENSHOT | CUSTOM)
-├── imageId: ImageId | null
-├── renderedImageId: ImageId
-├── annotationData: unknown | null
-├── version: number
-├── order: number
-├── source: PageSource
-├── createdAt: Timestamp
-└── status: ProcessingStatus
-`
-
-Key invariant: effectiveRenderedImageId dynamically returns 
-enderedImageId (or imageId as fallback).
-
-
-A capture represents one screenshot taken during a session.
-
-```text
-Capture
-├── id
-├── sessionId
-├── order
-├── imageId
-├── source
-├── createdAt
-└── processing state
+├── imageId: ImageId | null        (Original raw screenshot asset ID)
+├── renderedImageId?: ImageId       (Rendered composite image asset ID)
+├── annotationData?: string | null  (Serialized Excalidraw element JSON)
+├── version: number                 (Increments on every annotation save)
+├── order: number                   (0-based page sequence order)
+├── source?: PageSource | null      (FULL_SCREEN | CROP_REGION)
+├── createdAt: Timestamp            (Creation epoch milliseconds)
+└── status: ProcessingStatus        (PENDING | PROCESSING | COMPLETED | FAILED)
 ```
+
+### Key Domain Invariants:
+1. **`effectiveRenderedImageId` Getter**:
+   ```typescript
+   public get effectiveRenderedImageId(): ImageId {
+     if (this.type === PageType.CUSTOM) {
+       return this.renderedImageId!;
+     }
+     return this.renderedImageId ?? (this.imageId as ImageId);
+   }
+   ```
+   Dynamically resolves the image ID to use for visual display. Prefers `renderedImageId` if present; falls back to `imageId`.
+
+2. **Annotation Mutation (`updateAnnotations`)**:
+   Returns a new immutable `Page` instance with updated `annotationData`, updated `renderedImageId`, and `version` incremented by 1.
+
+3. **Page Type Validations**:
+   - `SCREENSHOT`: Must have non-null `imageId`.
+   - `CUSTOM`: Must have `imageId = null` and non-null `renderedImageId`.
 
 Conceptually:
 

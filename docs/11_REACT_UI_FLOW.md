@@ -867,6 +867,8 @@ The following are explicitly implemented and supported in current v1:
 ✓ OCR processing (Tesseract.js in Offscreen Document)
 ✓ OCR completion/failure real-time badge updates
 ✓ OCR pending decision modal (Export now vs Wait for OCR vs Cancel)
+✓ Page vector editing & annotation modal (Excalidraw inside Shadow DOM)
+✓ Bounded image rendering & side panel thumbnail auto-refresh
 ✓ Shadow DOM CSS isolation (#wsn-root)
 ✓ Floating draggable mascot button
 ✓ Right-side sliding panel
@@ -886,16 +888,17 @@ Not part of v1 (displayed options disabled or omitted):
 | Component / Hook | File Path | Responsibility | Boundary / Dependencies |
 | :--- | :--- | :--- | :--- |
 | **Mounting Root** | `src/main.tsx` | Injects `#wsn-root`, creates open Shadow DOM, injects `App.css`, creates root React container, initializes `ChromeMessageBus`. | DOM, React, `ChromeMessageBus` |
-| **Main App Container** | `src/app/App.tsx` | Hosts mascot SVG logo with eye-tracking & blink animation, coordinates active/new session view switching, lightbox, and toast container. | `useSession`, `useCaptures`, `usePdfExporter`, `MessageBusContext` |
+| **Main App Container** | `src/app/App.tsx` | Hosts mascot SVG logo, coordinates active/new session view switching, lightbox, PageEditor modal, and toast container. | `useSession`, `useCaptures`, `usePdfExporter`, `MessageBusContext` |
 | **Message Context** | `src/app/providers/MessageBusContext.tsx` | Supplies `MessageBus` implementation via React context. | React Context, `MessageBus` |
 | **Session Hook** | `src/features/session/hooks/useSession.ts` | Dispatches `START_SESSION`, `CONFIRM_OVERWRITE`, `END_SESSION`, `SET_CAPTURE_MODE`, queries `GET_SESSION`, listens for `SESSION_UPDATED`. | `useMessageBus` |
 | **Captures Hook** | `src/features/capture/hooks/useCaptures.ts` | Queries `GET_ALL_THUMBNAILS`, manages thumbnail list, sends `DELETE_CAPTURE`, listens for `CAPTURE_COMPLETE`, `OCR_COMPLETED`, `OCR_FAILED`. | `useMessageBus` |
 | **PDF Exporter Hook** | `src/features/pdf/hooks/usePdfExporter.ts` | Dispatches `CHECK_OCR_STATUS` and `EXPORT_PDF` (with `skipPendingOcr` flag), manages export state (`idle`, `generating`, `completed`, `failed`). | `useMessageBus` |
 | **Floating Mascot** | `src/features/capture/components/FloatingMascot.tsx` | Draggable mascot face widget fixed to viewport, toggles side panel on click. | React, DOM mouse events |
-| **Active Session View** | `src/features/session/components/ActiveSessionView.tsx` | Renders session header, capture count, mode toggle, scrollable thumbnail grid, and bottom "Download PDF" button with OCR decision modal. | `CaptureCard`, `DecisionModal` |
+| **Active Session View** | `src/features/session/components/ActiveSessionView.tsx` | Renders session header, capture count, mode toggle, scrollable thumbnail grid, edit buttons, and bottom "Download PDF" button. | `CaptureCard`, `DecisionModal` |
 | **New Session View** | `src/features/session/components/NewSessionView.tsx` | Renders session name input, mode selection cards (Full Screen vs Crop Region), and "Start Capture Session" button. | React |
-| **Capture Card** | `src/features/capture/components/CaptureCard.tsx` | Thumbnail card with order badge, OCR status pill (`PROCESSING`, `COMPLETED`, `FAILED`), delete button, and lightbox click handler. | React |
+| **Capture Card** | `src/features/capture/components/CaptureCard.tsx` | Thumbnail card with order badge, edit button (`onEditCapture`), delete button, and lightbox click handler. | React |
 | **Lightbox Preview** | `src/features/capture/components/LightboxPreview.tsx` | Full-screen image lightbox modal with backdrop dismiss and keyboard navigation. | React, DOM keyboard events |
+| **Page Editor Modal** | `src/features/page-editor/components/PageEditor.tsx` | Full-screen modal overlay hosting Excalidraw canvas. Performs scene initialization (`useMemo`), debounced auto-save, overlay event containment, and ESC shortcut. | Excalidraw, `renderBoundedPageImage`, `useMessageBus` |
 
 ---
 

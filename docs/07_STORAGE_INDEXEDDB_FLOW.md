@@ -2301,7 +2301,24 @@ These entities map directly to the finalized database schemas implemented in `Da
 
 
 
-## ARCHITECTURE UPDATE: Page Migration (DB Version 2)
+## ARCHITECTURE UPDATE: Page Migration & Annotation Storage (DB Version 2)
+
+- **Physical Store**: The physical IndexedDB object store remains named `captures` for schema compatibility, while the domain layer uses `Page`.
+- **Schema Version**: Upgraded to DB Version 2 (`snabby-db`).
+- **Page Schema Fields**:
+  - `type`: `SCREENSHOT` | `CUSTOM`
+  - `imageId`: String ID of raw screenshot `ImageAsset` in `images` store.
+  - `renderedImageId`: String ID of flattened composited `ImageAsset` in `images` store.
+  - `annotationData`: Excalidraw element JSON string (or `null` if un-annotated).
+  - `version`: Version counter incremented on every annotation save.
+- **Image Lifecycle & Cleanup Rules**:
+  - Raw screenshots are stored in `images` (`page.imageId`) and are **never deleted** during editing.
+  - Rendered annotated images are stored in `images` under a new `ImageId` (`page.renderedImageId`).
+  - When re-saving annotations for a page, `SavePageAnnotations` deletes the previous `renderedImageId` `ImageAsset` from IndexedDB if `effectiveRenderedImageId !== page.imageId`, preventing orphan image records.
+- **Infrastructure Services**:
+  - `IndexedDBPageRepository`: Manages CRUD for `Page` domain entities.
+  - `IndexedDBPagePersistenceService`: Handles multi-store transaction setup.
+  - `PageMapper`: Maps between `Page` domain instances and raw IndexedDB record schemas.
 
 - The physical IndexedDB store remains named captures for legacy compatibility.
 - The domain model now uses the Page entity.

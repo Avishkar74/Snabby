@@ -101,6 +101,14 @@ src/features/
 │
 ├── session/
 ├── capture/
+├── page-editor/
+│   ├── components/
+│   │   └── PageEditor.tsx
+│   ├── types/
+│   │   └── pageEditor.types.ts
+│   ├── utils/
+│   │   └── renderBoundedPageImage.ts
+│   └── index.ts
 ├── preview/
 └── pdf/
 ```
@@ -184,6 +192,11 @@ src/application/
 │   ├── GetSession.ts
 │   ├── UpdateSession.ts
 │   └── DeleteSession.ts
+│
+├── page/
+│   ├── CreateScreenshotPage.ts
+│   ├── GetPageEditorImage.ts
+│   └── SavePageAnnotations.ts
 │
 ├── capture/
 │   ├── CaptureScreenshot.ts

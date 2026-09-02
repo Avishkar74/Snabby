@@ -855,7 +855,33 @@ This is an architectural requirement, **not a v1 feature**.
 
 ---
 
-# 31. High-Level Requirements Summary
+# 31. Requirement: Page Editing and Vector Annotation
+
+Users must be able to visually annotate captured page screenshots using an integrated vector editor (Excalidraw).
+
+Requirements:
+1. Users can launch the editor by clicking the **Edit** action on any captured page card in the side panel.
+2. The editor must display the original screenshot as a locked background element at position `(0, 0)`.
+3. Users can draw, write, and add vector shapes over the screenshot.
+4. Annotation data (`Page.annotationData`) must be serialized as Excalidraw element JSON and stored separately from the background screenshot.
+5. Reopening the editor for an annotated page must restore all previous vector drawings in an editable state.
+6. The editor UI must run inside Snabby's Shadow DOM as a full-screen modal overlay.
+
+---
+
+# 32. Requirement: Bounded Rendered Image Persistence & Display Fallback
+
+The vector annotations must be composited into a flattened visual image for display in side panel previews, lightboxes, and generated PDFs.
+
+Requirements:
+1. **Bounded Compositing**: Drawings made outside the original screenshot dimensions (`width` × `height`) must be strictly cropped out of the final rendered image (`renderBoundedPageImage`).
+2. **Rendered Image Asset Storage**: The composited visual image (`screenshot + drawings`) must be saved to IndexedDB as a separate `ImageAsset` with a unique `renderedImageId`.
+3. **Old Asset Cleanup**: Re-saving page annotations must replace and delete the previous rendered `ImageAsset` from IndexedDB to avoid storage leaks.
+4. **Transparent Image Fallback**: All visual consumers (side panel, lightbox, PDF exporter) must resolve page images via `page.effectiveRenderedImageId` (`renderedImageId ?? imageId`), ensuring transparent display of the latest annotated page version.
+
+---
+
+# 33. High-Level Requirements Summary
 
 The entire v1 can therefore be viewed as:
 
@@ -877,12 +903,7 @@ The entire v1 can therefore be viewed as:
    Image Processing
           │
           ▼
-         OCR
-          │
-          ├── Text
-          ├── Words
-          ├── Confidence
-          └── Bounding Boxes
+         OCR ──► Persist OCR Result
           │
           ▼
      IndexedDB

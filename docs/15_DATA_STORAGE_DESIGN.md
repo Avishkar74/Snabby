@@ -1007,13 +1007,13 @@ Delete Capture
 
 The following persistence decisions are now finalized:
 
-* Database name: `snabby`
-* Database version: `1`
+* Database name: `snabby-db`
+* Database version: `2` (upgraded to support `Page` entity with `renderedImageId` and `annotationData`)
 * Key generation: Branded UUID string identifiers (`crypto.randomUUID()`)
-* Object stores: `sessions`, `captures`, `images`, and `ocrResults`
+* Object stores: `sessions`, `captures` (stores `Page` entities), `images` (stores `ImageAsset` Blobs), and `ocrResults`
 * Indexes: `sessionId` index and compound sorting index `sessionId_order = ['sessionId', 'order']` on `captures`
-* OCR primary key: `captureId` (1:1 with captures)
-* Transaction boundaries: Atomic cascade deletion implemented directly in repository implementations
+* OCR primary key: `captureId` (1:1 with pages)
+* Transaction boundaries: Atomic persistence implemented in `IndexedDBPagePersistenceService`
 
 ---
 
@@ -1029,19 +1029,19 @@ The following persistence decisions are now finalized:
                            │
                            ▼
                  ┌────────────────────┐
-                 │     IndexedDB       │
-                 │                    │
+                 │     IndexedDB      │
+                 │    (snabby-db)     │
                  │  ┌──────────────┐  │
                  │  │   sessions   │  │
                  │  └──────┬───────┘  │
                  │         │          │
                  │         ▼          │
                  │  ┌──────────────┐  │
-                 │  │   captures   │  │
+                 │  │   captures   │  │ (Page entity records with annotationData)
                  │  └───┬──────┬───┘  │
                  │      │      │       │
                  │      ▼      ▼       │
-                 │  images   ocrResults│
+                 │  images   ocrResults│ (Original & Rendered ImageAsset Blobs)
                  │                    │
                  └────────────────────┘
 ```
@@ -1052,20 +1052,23 @@ The following persistence decisions are now finalized:
 
 | Decision                           | Choice                                   |
 | ---------------------------------- | ---------------------------------------- |
-| Persistent storage                 | **IndexedDB**                            |
+| Persistent storage                 | **IndexedDB** (`snabby-db` v2)           |
 | `chrome.storage.local`             | **Not used for application persistence** |
-| Screenshot format                  | **Blob**                                 |
+| Screenshot format                  | **Blob** (`ImageAsset`)                  |
 | Session storage                    | IndexedDB                                |
-| Capture metadata                   | IndexedDB                                |
+| Page / Capture metadata            | IndexedDB (`captures` store)             |
+| Vector Annotations                 | `Page.annotationData` (Excalidraw JSON)  |
+| Rendered Images                    | `Page.renderedImageId` (`ImageAsset`)    |
 | OCR results                        | IndexedDB                                |
 | Generated PDF persistence          | **No**                                   |
 | Image/OCR separation               | **Yes**                                  |
-| Session → Captures                 | 1:N                                      |
-| Capture → Image                    | 1:1                                      |
-| Capture → OCR                      | 1:0..1                                   |
-| Capture ordering                   | Persisted                                |
+| Session → Pages                    | 1:N                                      |
+| Page → Image (Original)            | 1:1 (`imageId`)                          |
+| Page → Rendered Image              | 1:0..1 (`renderedImageId`)               |
+| Page → OCR                         | 1:0..1                                   |
+| Page ordering                      | Persisted                                |
 | Storage quota UI                   | **No**                                   |
-| Schema migrations                  | IndexedDB versioning                     |
+| Schema migrations                  | IndexedDB versioning (v1 ──► v2)        |
 | Direct IndexedDB access from React | **No**                                   |
 
-> **Core principle:** IndexedDB is Snabby's persistent source of truth. Metadata, screenshot Blobs, and OCR results are separated into independently addressable records, while repositories hide all IndexedDB-specific details from the application and React layers.
+> **Core principle:** IndexedDB is Snabby's persistent source of truth. Metadata, screenshot Blobs, vector annotation JSON, and OCR results are separated into independently addressable records, while repositories hide all IndexedDB-specific details from the application and React layers.

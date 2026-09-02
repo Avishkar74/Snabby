@@ -1263,11 +1263,15 @@ The resulting architecture is:
 
 | Module | Exact File Path | Responsibility | Boundary |
 | :--- | :--- | :--- | :--- |
-| **React Components** | `src/app/App.tsx`, `src/features/**/components/*.tsx` | Renders UI views, cards, modals, lightbox, floating mascot | Presentation (Shadow DOM) |
+| **React Components** | `src/app/App.tsx`, `src/features/**/components/*.tsx` | Renders UI views, cards, modals, lightbox, PageEditor modal, floating mascot | Presentation (Shadow DOM) |
+| **Page Editor Component** | `src/features/page-editor/components/PageEditor.tsx` | Hosts Excalidraw vector canvas, initial scene setup, debounced auto-save, overlay event isolation | Presentation (Shadow DOM) |
+| **Page Editor Utility** | `src/features/page-editor/utils/renderBoundedPageImage.ts` | Bounded vector canvas export, padding compensation, canvas compositing & cropping | Presentation / Image |
 | **React Hooks** | `src/features/**/hooks/*.ts` | Connects React UI to MessageBus / Service Worker commands | Presentation State |
 | **Message Bus Provider** | `src/app/providers/MessageBusContext.tsx` | Supplies `MessageBus` to React component tree | Presentation Context |
 | **Use Cases (Session)** | `src/application/session/*.ts` | Orchestrates create, get, update, delete session | Application |
-| **Use Case (Capture)** | `src/application/capture/CaptureScreenshot.ts` | Orchestrates screenshot acquisition, image processing, atomic persistence, async OCR dispatch | Application |
+| **Use Case (Page Editor)** | `src/application/page/GetPageEditorImage.ts` | Fetches `Page` entity and raw screenshot `ImageAsset` for PageEditor initialization | Application |
+| **Use Case (Page Editor)** | `src/application/page/SavePageAnnotations.ts` | Persists vector `annotationData`, creates new composited `ImageAsset`, deletes old rendered asset, updates `Page` | Application |
+| **Use Case (Capture)** | `src/application/page/CreateScreenshotPage.ts` | Orchestrates screenshot acquisition, image processing, atomic persistence, async OCR dispatch | Application |
 | **Use Cases (OCR)** | `src/application/ocr/RunOCR.ts`, `GetOCRResult.ts` | Orchestrates OCR execution and result persistence | Application |
 | **Use Cases (PDF)** | `src/application/pdf/GeneratePDF.ts`, `DownloadPDF.ts` | Orchestrates PDF document assembly and download dispatch | Application |
 | **Domain Entities** | `src/domain/**/*.ts` | Encapsulates Session, Capture, OCRResult invariants & models | Domain |

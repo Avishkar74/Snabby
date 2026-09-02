@@ -788,7 +788,23 @@ The following implementation details are finalized:
 
 ---
 
-# 29. Final Communication Flow
+# 29. Page Editor Commands
+
+The Page Editor introduces two dedicated commands between the React UI and Service Worker:
+
+### `GET_PAGE_EDITOR_IMAGE`
+- **Direction**: React UI ──► Service Worker
+- **Purpose**: Retrieves original screenshot base64 Data URL and existing `annotationData` for initializing Excalidraw.
+- **Handler**: `GetPageEditorImage` use case.
+
+### `SAVE_PAGE_ANNOTATIONS`
+- **Direction**: React UI ──► Service Worker
+- **Purpose**: Persists serialized vector `annotationData` and the newly rendered bounded image Data URL (`renderedImageData`).
+- **Handler**: `SavePageAnnotations` use case. Triggers `SESSION_UPDATED` broadcast to refresh UI thumbnails.
+
+---
+
+# 30. Final Communication Flow
 
 ```text
                          ┌─────────────┐
@@ -796,22 +812,23 @@ The following implementation details are finalized:
                          └──────┬──────┘
                                 │
                          Commands / Results
+                         (Capture / Edit / PDF)
                                 │
                                 ▼
-                     ┌──────────────────┐
-                     │  Service Worker  │
-                     │                  │
-                     │  Coordinator     │
-                     └───────┬──────────┘
-                             │
-                     Chrome Runtime Message
-                             │
-                             ▼
-                     ┌──────────────────┐
-                     │ Offscreen Document│
-                     │                  │
-                     │ OCR Environment  │
-                     └────────┬─────────┘
+                      ┌──────────────────┐
+                      │  Service Worker  │
+                      │                  │
+                      │  Coordinator     │
+                      └───────┬──────────┘
+                              │
+                      Chrome Runtime Message
+                              │
+                              ▼
+                      ┌──────────────────┐
+                      │ Offscreen Document│
+                      │                  │
+                      │ OCR Environment  │
+                      └───────┬──────────┘
                               │
                               ▼
                        ┌─────────────┐
