@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Excalidraw, convertToExcalidrawElements } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import type { FileId } from '@excalidraw/excalidraw/element/types';
@@ -20,19 +20,18 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   const messageBus = useMessageBus();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
 
-  // Stable refs for API, active page ID, initialization tracking, and debounced persistence
+  // imageData drives rendering — Excalidraw only mounts after this is set
+  const [imageData, setImageData] = useState<PageImageData | null>(null);
+
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const activePageIdRef = useRef<string | null>(pageId);
-  const initializedPageIdRef = useRef<string | null>(null);
-  const pendingImageDataRef = useRef<PageImageData | null>(null);
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAnnotationRef = useRef<{ pageId: string; annotationData: string | null } | null>(null);
   const lastSavedAnnotationDataRef = useRef<string | null>(null);
 
-  // Synchronous flush function to save any pending unsaved annotations immediately
+  // ─── Synchronous flush – saves pending annotations immediately on close ───
   const flushPendingSave = useCallback(() => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -57,161 +56,122 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     }
   }, [messageBus]);
 
-  // Helper to populate scene ONCE when image data and API are ready
-  const populateScene = useCallback((api: ExcalidrawImperativeAPI, imgData: PageImageData) => {
-    try {
-      const fileId = `img_${imgData.pageId}` as FileId;
+  // ─── Build initialData synchronously from imageData via useMemo ──────────
+  // Using initialData instead of updateScene eliminates ALL timing races:
+  // Excalidraw only mounts when this is ready and receives data on first paint.
+  const initialData = useMemo(() => {
+    if (!imageData) return null;
 
-      // 1. Add image file to Excalidraw's internal file cache
-      api.addFiles([
-        {
-          id: fileId,
-          dataURL: imgData.dataUrl as any,
-          mimeType: imgData.mimeType as any,
-          created: Date.now(),
-        },
-      ]);
+    const fileId = `img_${imageData.pageId}` as FileId;
+    const fileData = {
+      id: fileId,
+      dataURL: imageData.dataUrl as any,
+      mimeType: imageData.mimeType as any,
+      created: Date.now(),
+    };
 
-      // 2. Create Bounded Screenshot Image Element locked at origin (0, 0)
-      const imageElementId = `image_${imgData.pageId}`;
-      const screenshotElements = convertToExcalidrawElements([
-        {
-          type: 'image',
-          id: imageElementId as any,
-          x: 0,
-          y: 0,
-          width: imgData.width,
-          height: imgData.height,
-          fileId,
-          status: 'saved',
-          locked: true,
-        },
-      ]);
+    const screenshotElements = convertToExcalidrawElements([
+      {
+        type: 'image',
+        id: `image_${imageData.pageId}` as any,
+        x: 0,
+        y: 0,
+        width: imageData.width,
+        height: imageData.height,
+        fileId,
+        status: 'saved',
+        locked: true,
+      },
+    ]);
 
-      // Parse user saved annotations if present
-      let userElements: any[] = [];
-      if (imgData.annotationData) {
-        try {
-          userElements = JSON.parse(imgData.annotationData);
-        } catch (err) {
-          console.warn('[PageEditor] Failed to parse annotationData:', err);
-        }
+    let userElements: any[] = [];
+    if (imageData.annotationData) {
+      try {
+        userElements = JSON.parse(imageData.annotationData);
+      } catch (e) {
+        console.warn('[PageEditor] Failed to parse annotationData:', e);
       }
+    }
 
-      const allElements = [...screenshotElements, ...userElements];
+    // Seed the last-saved ref so we don't immediately re-save on mount
+    lastSavedAnnotationDataRef.current = imageData.annotationData || null;
+    pendingAnnotationRef.current = null;
 
-      // Record initial saved annotation state to prevent unnecessary saves
-      lastSavedAnnotationDataRef.current = imgData.annotationData || null;
-      pendingAnnotationRef.current = null;
+    return {
+      elements: [...screenshotElements, ...userElements],
+      files: { [fileId]: fileData } as any,
+      appState: { viewBackgroundColor: '#0e0e10' },
+    };
+  }, [imageData]);
 
-      // 3. Populate scene with screenshot & saved user elements & set dark canvas background
-      api.updateScene({
-        elements: allElements,
-        appState: {
-          viewBackgroundColor: '#0e0e10',
-        },
-      });
-
-      // 4. Fit viewport cleanly to screenshot (natively centers screenshot in middle of modal canvas)
+  // ─── Excalidraw API callback – scroll to screenshot after mount ───────────
+  const handleExcalidrawAPI = useCallback(
+    (api: ExcalidrawImperativeAPI) => {
+      excalidrawAPIRef.current = api;
+      if (!imageData) return;
+      const imageElementId = `image_${imageData.pageId}`;
       setTimeout(() => {
         try {
-          api.scrollToContent(screenshotElements, {
+          const liveElements = api.getSceneElements();
+          const screenshot = liveElements.find((el) => el.id === imageElementId);
+          const target = screenshot ? [screenshot] : liveElements;
+          api.scrollToContent(target, {
             fitToViewport: true,
             viewportZoomFactor: 0.85,
             animate: false,
           });
         } catch (e) {
-          // ignore if unmounted
+          // ignore if already unmounted
         }
       }, 50);
-    } catch (err) {
-      console.error('[PageEditor] Failed to populate scene:', err);
-      setError('Failed to display screenshot on canvas');
-    }
-  }, []);
-
-  // Debounced change handler when user draws/modifies Excalidraw scene
-  const handleChange = useCallback((elements: readonly any[]) => {
-    const currentPageId = activePageIdRef.current;
-    if (!currentPageId || initializedPageIdRef.current !== currentPageId) {
-      return;
-    }
-
-    const bgImageId = `image_${currentPageId}`;
-    // Filter out screenshot image background and deleted elements
-    const userElements = elements.filter(
-      (el) => el.id !== bgImageId && !el.isDeleted
-    );
-
-    const annotationData = userElements.length > 0 ? JSON.stringify(userElements) : null;
-
-    if (annotationData === lastSavedAnnotationDataRef.current) {
-      return;
-    }
-
-    pendingAnnotationRef.current = { pageId: currentPageId, annotationData };
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = setTimeout(() => {
-      flushPendingSave();
-    }, 500);
-  }, [flushPendingSave]);
-
-  // Excalidraw API callback handler
-  const handleExcalidrawAPI = useCallback(
-    (api: ExcalidrawImperativeAPI) => {
-      excalidrawAPIRef.current = api;
-
-      // If there is pending image data waiting for the API, populate scene now
-      if (
-        pendingImageDataRef.current &&
-        pendingImageDataRef.current.pageId === activePageIdRef.current &&
-        initializedPageIdRef.current === activePageIdRef.current
-      ) {
-        populateScene(api, pendingImageDataRef.current);
-        pendingImageDataRef.current = null;
-      }
     },
-    [populateScene]
+    [imageData]
   );
 
-  // Main page load effect: runs ONLY when pageId changes
+  // ─── Debounced change handler – save user drawings ────────────────────────
+  const handleChange = useCallback(
+    (elements: readonly any[]) => {
+      const currentPageId = activePageIdRef.current;
+      if (!currentPageId || !imageData || imageData.pageId !== currentPageId) return;
+
+      const bgImageId = `image_${currentPageId}`;
+      // Filter out locked screenshot background and any deleted elements
+      const userElements = elements.filter(
+        (el) => el.id !== bgImageId && !el.isDeleted
+      );
+
+      const annotationData = userElements.length > 0 ? JSON.stringify(userElements) : null;
+
+      if (annotationData === lastSavedAnnotationDataRef.current) return;
+
+      pendingAnnotationRef.current = { pageId: currentPageId, annotationData };
+
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        flushPendingSave();
+      }, 500);
+    },
+    [imageData, flushPendingSave]
+  );
+
+  // ─── Main load effect – fetch image data, then let useMemo build scene ────
   useEffect(() => {
     activePageIdRef.current = pageId;
 
     if (!pageId) {
-      initializedPageIdRef.current = null;
-      pendingImageDataRef.current = null;
-      setDimensions(null);
+      setImageData(null);
       setLoading(false);
       setError(null);
-      return;
-    }
-
-    // CRITICAL: If this page has ALREADY been initialized, do NOT re-run initialization!
-    if (initializedPageIdRef.current === pageId) {
+      excalidrawAPIRef.current = null;
       return;
     }
 
     let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setImageData(null); // unmounts Excalidraw while we fetch
 
-    const loadPage = async () => {
-      setLoading(true);
-      setError(null);
-      setDimensions(null);
-
-      // Clear previous scene if API is ready
-      if (excalidrawAPIRef.current) {
-        try {
-          excalidrawAPIRef.current.resetScene();
-        } catch (e) {
-          console.debug('[PageEditor] Error resetting scene:', e);
-        }
-      }
-
+    (async () => {
       try {
         const response = await messageBus.request<{
           success: boolean;
@@ -222,22 +182,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           pageId,
         } as any);
 
-        if (cancelled || activePageIdRef.current !== pageId) {
-          return;
-        }
+        if (cancelled || activePageIdRef.current !== pageId) return;
 
         if (response.success && response.data) {
-          const imgData = response.data;
-          initializedPageIdRef.current = pageId;
-          setDimensions({ width: imgData.width, height: imgData.height });
-
-          if (excalidrawAPIRef.current) {
-            populateScene(excalidrawAPIRef.current, imgData);
-            pendingImageDataRef.current = null;
-          } else {
-            pendingImageDataRef.current = imgData;
-          }
-
+          setImageData(response.data);
           setLoading(false);
         } else {
           setError(response.error?.message || 'Failed to load page screenshot');
@@ -249,24 +197,23 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           setLoading(false);
         }
       }
-    };
-
-    loadPage();
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [pageId, messageBus, populateScene]);
+  }, [pageId, messageBus]);
 
   const handleClose = useCallback(() => {
     flushPendingSave();
     onClose();
   }, [flushPendingSave, onClose]);
 
-  // Flush unsaved pending annotations on component unmount
+  // Teardown cleanup when component fully unmounts from App tree
   useEffect(() => {
     return () => {
       flushPendingSave();
+      excalidrawAPIRef.current = null;
     };
   }, [flushPendingSave]);
 
@@ -296,10 +243,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     return null;
   }
 
-  // 1. Calculate modal container width dynamically to eliminate excessive empty space on the right while preserving space on the left for side panels
-const containerWidth = dimensions
-  ? Math.min(window.innerWidth * 0.82, Math.max(760, dimensions.width + 200))
-  : 'min(82vw, 1050px)';
+  // 1. Calculate modal container width dynamically
+  const containerWidth = imageData
+    ? Math.min(window.innerWidth * 0.82, Math.max(760, imageData.width + 200))
+    : 'min(82vw, 1050px)';
 
   return (
     <div
@@ -347,7 +294,8 @@ const containerWidth = dimensions
         {/* CSS Rules:
             1. Suppress Excalidraw internal toast overlays
             2. Hide Library button in toolbar
-            3. Hide floating question-mark/help icon in bottom right */}
+            3. Hide Insert Image button in toolbar
+            4. Hide floating question-mark/help icon in bottom right */}
         <style>{`
           .wsn-editor-modal .excalidraw .toast,
           .wsn-editor-modal .excalidraw .hint-container {
@@ -358,6 +306,14 @@ const containerWidth = dimensions
           .wsn-editor-modal .excalidraw [data-testid="toolbar-library"],
           .wsn-editor-modal .excalidraw .library-button,
           .wsn-editor-modal .excalidraw .sidebar-trigger {
+            display: none !important;
+          }
+          .wsn-editor-modal .excalidraw [data-testid="toolbar-image"],
+          .wsn-editor-modal .excalidraw label[title*="Image"],
+          .wsn-editor-modal .excalidraw button[title*="Image"],
+          .wsn-editor-modal .excalidraw label[aria-label*="Image"],
+          .wsn-editor-modal .excalidraw label[data-id="image"],
+          .wsn-editor-modal .excalidraw label:has(input[value="image"]) {
             display: none !important;
           }
           .wsn-editor-modal .excalidraw .help-icon,
@@ -460,7 +416,21 @@ const containerWidth = dimensions
             }
           `}</style>
 
-          <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} onChange={handleChange} />
+          {/* Excalidraw only mounts after imageData is ready; initialData eliminates timing races */}
+          {imageData && initialData ? (
+            <Excalidraw
+              key={pageId ?? undefined}
+              theme="dark"
+              initialData={initialData}
+              excalidrawAPI={handleExcalidrawAPI}
+              onChange={handleChange}
+              UIOptions={{
+                tools: {
+                  image: false,
+                },
+              }}
+            />
+          ) : null}
 
           {loading && (
             <div
