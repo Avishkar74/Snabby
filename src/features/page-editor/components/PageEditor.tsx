@@ -15,6 +15,7 @@ interface PageImageData {
   height: number;
   mimeType: string;
   annotationData?: string | null;
+  files?: Record<string, { id: string; dataURL: string; mimeType: string }>;
 }
 
 export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
@@ -54,13 +55,17 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         (async () => {
           try {
             let renderedImageData = null;
+            const liveFiles = excalidrawAPIRef.current ? excalidrawAPIRef.current.getFiles() : null;
+
             if (annotationData && currentImgData && currentImgData.pageId === targetPageId) {
               renderedImageData = await renderBoundedPageImage(
                 currentImgData.dataUrl,
                 currentImgData.width,
                 currentImgData.height,
                 currentImgData.mimeType,
-                annotationData
+                annotationData,
+                liveFiles,
+                `image_${targetPageId}`
               );
             }
 
@@ -72,6 +77,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
               pageId: targetPageId,
               annotationData,
               renderedImageData,
+              files: liveFiles || undefined,
             } as any);
           } catch (err) {
             console.error('[PageEditor] Failed to save page annotations & rendered image:', err);
@@ -124,7 +130,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
 
     return {
       elements: [...screenshotElements, ...userElements],
-      files: { [fileId]: fileData } as any,
+      files: {
+        [fileId]: fileData,
+        ...(imageData.files || {}),
+      } as any,
       appState: { viewBackgroundColor: '#0e0e10' },
     };
   }, [imageData]);
@@ -159,9 +168,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       const currentPageId = activePageIdRef.current;
       if (!currentPageId || !imageData || imageData.pageId !== currentPageId) return;
 
-      // Filter out the locked screenshot background (which is always an image) and any deleted elements
+      const bgImageElementId = `image_${imageData.pageId}`;
+      // Filter out the locked screenshot background and any deleted elements
       const userElements = elements.filter(
-        (el) => el.type !== 'image' && !el.isDeleted
+        (el) => el.id !== bgImageElementId && !el.isDeleted
       );
 
       const annotationData = userElements.length > 0 ? JSON.stringify(userElements) : null;
@@ -465,7 +475,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
               onChange={handleChange}
               UIOptions={{
                 tools: {
-                  image: false,
+                  image: true,
                 },
               }}
             />

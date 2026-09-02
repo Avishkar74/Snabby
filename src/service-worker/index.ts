@@ -426,7 +426,24 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           };
         }
         case 'DELETE_CAPTURE': {
-          await pageRepo.delete(message.captureId);
+          const pageToDelete = await pageRepo.findById(message.captureId);
+          if (pageToDelete) {
+            if (pageToDelete.imageId) await imageRepo.delete(pageToDelete.imageId).catch(() => {});
+            if (pageToDelete.renderedImageId) await imageRepo.delete(pageToDelete.renderedImageId).catch(() => {});
+            if (pageToDelete.annotationData) {
+              try {
+                const elements = JSON.parse(pageToDelete.annotationData);
+                if (Array.isArray(elements)) {
+                  for (const el of elements) {
+                    if (el && el.type === 'image' && el.fileId && el.fileId !== `img_${pageToDelete.id}`) {
+                      await imageRepo.delete(el.fileId as any).catch(() => {});
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+            await pageRepo.delete(pageToDelete.id);
+          }
           broadcastMessage({ type: 'SESSION_UPDATED' });
           return { success: true };
         }
@@ -521,11 +538,17 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               height: imageAsset.height,
               mimeType,
               annotationData: page.annotationData || null,
+              files: result.editorFiles,
             },
           };
         }
         case 'SAVE_PAGE_ANNOTATIONS': {
-          const success = await savePageAnnotations.execute(message.pageId as any, message.annotationData as any, message.renderedImageData as any);
+          const success = await savePageAnnotations.execute(
+            message.pageId as any,
+            message.annotationData as any,
+            message.renderedImageData as any,
+            message.files as any
+          );
           if (success && message.renderedImageData) {
             broadcastMessage({ type: 'SESSION_UPDATED' });
 

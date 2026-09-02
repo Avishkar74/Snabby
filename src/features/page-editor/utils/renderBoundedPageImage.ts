@@ -12,18 +12,19 @@ interface Bounds {
 }
 
 /**
- * Calculates the exact scene bounding box for a set of Excalidraw elements.
+ * Calculates the exact scene bounding box for a set of user Excalidraw elements.
  * Correctly accounts for points arrays (freedraw/line/arrow), stroke widths,
- * and element dimensions.
+ * element dimensions, and user-uploaded image elements.
  */
-function getElementsBounds(elements: any[]): Bounds {
+function getElementsBounds(elements: any[], bgImageElementId?: string): Bounds {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
 
   for (const el of elements) {
-    if (!el || el.isDeleted || el.type === 'image') continue;
+    if (!el || el.isDeleted) continue;
+    if (bgImageElementId && el.id === bgImageElementId) continue;
 
     let elMinX = el.x;
     let elMinY = el.y;
@@ -54,12 +55,14 @@ function getElementsBounds(elements: any[]): Bounds {
       if (pMaxY !== -Infinity) elMaxY = pMaxY;
     }
 
-    // Account for stroke width expansion
-    const halfStroke = (el.strokeWidth || 2) / 2;
-    elMinX -= halfStroke;
-    elMinY -= halfStroke;
-    elMaxX += halfStroke;
-    elMaxY += halfStroke;
+    // Account for stroke width expansion on non-image elements
+    if (el.type !== 'image') {
+      const halfStroke = (el.strokeWidth || 2) / 2;
+      elMinX -= halfStroke;
+      elMinY -= halfStroke;
+      elMaxX += halfStroke;
+      elMaxY += halfStroke;
+    }
 
     if (elMinX < minX) minX = elMinX;
     if (elMinY < minY) minY = elMinY;
@@ -83,6 +86,8 @@ function getElementsBounds(elements: any[]): Bounds {
  * @param originalHeight Height of the original screenshot
  * @param mimeType MIME type of the original screenshot
  * @param annotationData JSON string of user elements
+ * @param files Optional map of Excalidraw BinaryFiles for user-uploaded images
+ * @param bgImageElementId Optional element ID of the background screenshot to exclude
  * @returns A promise resolving to the final composited Data URL
  */
 export async function renderBoundedPageImage(
@@ -90,10 +95,16 @@ export async function renderBoundedPageImage(
   originalWidth: number,
   originalHeight: number,
   mimeType: string,
-  annotationData: string
+  annotationData: string,
+  files?: Record<string, any> | null,
+  bgImageElementId?: string
 ): Promise<string> {
   const allElements = JSON.parse(annotationData || '[]');
-  const userElements = allElements.filter((el: any) => el.type !== 'image' && !el.isDeleted);
+  const userElements = allElements.filter((el: any) => {
+    if (!el || el.isDeleted) return false;
+    if (bgImageElementId && el.id === bgImageElementId) return false;
+    return true;
+  });
 
   if (userElements.length === 0) {
     return originalImageDataUrl;
@@ -110,11 +121,11 @@ export async function renderBoundedPageImage(
           exportWithDarkMode: true,
           theme: 'dark',
         },
-        files: null,
+        files: files || null,
       });
 
       // 2. Calculate the exact bounding box of the user-drawn elements (in scene coordinates).
-      const bounds = getElementsBounds(userElements);
+      const bounds = getElementsBounds(userElements, bgImageElementId);
 
       // 3. Prepare our bounded output canvas — exact original screenshot dimensions.
       const outputCanvas = document.createElement('canvas');
@@ -135,10 +146,6 @@ export async function renderBoundedPageImage(
         ctx.drawImage(img, 0, 0, originalWidth, originalHeight);
 
         // 5. Draw Excalidraw annotations on top.
-        //
-        // Excalidraw's exported canvas starts at (bounds.minX - padding, bounds.minY - padding)
-        // relative to the scene. To place it correctly on our screenshot-based
-        // output canvas we offset by (bounds.minX - padding).
         const drawX = bounds.minX - EXCALIDRAW_EXPORT_PADDING;
         const drawY = bounds.minY - EXCALIDRAW_EXPORT_PADDING;
         ctx.drawImage(excalidrawCanvas, drawX, drawY);

@@ -228,7 +228,31 @@ Snabby enforces a **version-aware OCR lifecycle** that automatically re-runs OCR
    - **Scribbles / Non-Text Content**: When OCR processes an image containing only scribbles, shapes, or diagrams, Tesseract finishes with `status: COMPLETED` and `fullText: ""`. This is marked as **COMPLETED for this image version** and will **never be retried automatically**.
    - **Genuine Failures**: System failures finish as `status: FAILED` with `processedImageId = currentImageId`. They are marked as failed for that visual version and will not loop indefinitely.
 
-1. **Stale Async Load Protection**: `PageEditor` tracks `activePageIdRef`. If the user switches pages rapidly while a `GET_PAGE_EDITOR_IMAGE` request is in-flight, responses for outdated `pageId`s are discarded.
-2. **Editor Unmount Flush**: `useEffect` cleanup and `handleClose` trigger `flushPendingSave()` synchronously, ensuring any un-saved drawings are flushed before the component unmounts.
-3. **Missing Image Recovery**: `GetPageEditorImage` falls back to `page.effectiveRenderedImageId` if `page.imageId` is null, preventing editor load failures.
-4. **IndexedDB Cleanup**: `SavePageAnnotations` safely cleans up obsolete rendered image assets (`ImageRepository.delete(oldId)`) upon re-saving to prevent database storage bloat.
+---
+
+## 9. Local Image Uploads & File Persistence Architecture
+
+Snabby supports uploading local images (PNG, JPEG/JPG, WebP, GIF, SVG) onto the Excalidraw canvas with non-destructive persistence and authoritative page bounding:
+
+1. **Toolbar Integration**:
+   - `Excalidraw` is mounted with `UIOptions={{ tools: { image: true } }}` which exposes the native image insertion tool in the Excalidraw toolbar.
+
+2. **Binary Storage & ImageRepository Reuse**:
+   - Uploaded image binaries are stored as raw `Blob` objects in `ImageRepository` (`images` object store in IndexedDB) with `id = fileId`.
+   - `annotationData` remains lightweight JSON containing Excalidraw element properties (`type: 'image', fileId: 'img_user_...'`).
+   - `SavePageAnnotations` converts file data URLs to Blobs and persists them in `ImageRepository`.
+
+3. **Page Reopening & File Restoration**:
+   - `GetPageEditorImage` parses `page.annotationData`, loads all user-uploaded `ImageAsset` Blobs from `ImageRepository`, converts them to base64 data URLs, and populates the `files` map.
+   - `PageEditor` seeds `initialData.files` on mount so all uploaded images are restored and 100% editable.
+
+4. **Authoritative Page Bounding & Non-Destructive Cropping**:
+   - The base page (screenshot or blank A4 page) defines the **authoritative page bounds** (`originalWidth × originalHeight`).
+   - `renderBoundedPageImage` uses `getElementsBounds` to calculate exact element placement and composites `excalidrawCanvas` onto `outputCanvas`.
+   - Any portion of an uploaded image extending outside the base page boundary is automatically clipped in previews and PDFs.
+   - In `annotationData` and IndexedDB, full element geometry and image Blobs remain untouched, allowing complete non-destructive re-editing.
+
+5. **Page Isolation & Automatic Orphan Cleanup**:
+   - Uploaded images belong strictly to their target page.
+   - When saving annotations, `SavePageAnnotations` diffs active `fileId`s against stored `fileId`s and deletes unreferenced image assets.
+   - When a page is deleted (`DELETE_CAPTURE`), all referenced editor image assets are deleted from `ImageRepository`.
