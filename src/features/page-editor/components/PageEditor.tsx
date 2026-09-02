@@ -261,12 +261,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   const mouseDownTargetRef = useRef<EventTarget | null>(null);
 
   const handleOverlayMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
     mouseDownTargetRef.current = e.target;
   };
 
   const handleOverlayMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
     // Only close if both mousedown AND mouseup happened directly on the dark overlay background
     if (
       overlayRef.current &&
@@ -293,9 +291,6 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       className="wsn-editor-overlay"
       onMouseDown={handleOverlayMouseDown}
       onMouseUp={handleOverlayMouseUp}
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onPointerUp={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
         top: 0,

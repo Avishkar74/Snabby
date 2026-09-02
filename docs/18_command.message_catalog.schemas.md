@@ -1406,6 +1406,45 @@ This is deliberate.
 
 ---
 
+### 43.3 `CREATE_CUSTOM_PAGE`
+
+#### Request
+```ts
+{
+  type: "CREATE_CUSTOM_PAGE",
+  sessionId: string,
+  index?: number,      // Optional 0-based insertion index
+  requestId?: string
+}
+```
+
+#### Response (Success)
+```ts
+{
+  success: true,
+  data: {
+    page: Page         // Created Page domain entity
+  }
+}
+```
+
+#### Response (Failure)
+```ts
+{
+  success: false,
+  error: {
+    code: "CREATE_CUSTOM_PAGE_FAILED",
+    message: string,
+    operation: "CREATE_CUSTOM_PAGE"
+  }
+}
+```
+
+#### Side Effects
+- Broadcasts `SESSION_UPDATED` event to all UI contexts to trigger thumbnail refreshes.
+
+---
+
 > **The communication layer should contain only messages that represent real v1 behavior. Unused, legacy, phone-upload, P2P, and OCR-progress messages are not carried into the new architecture.**
 
 

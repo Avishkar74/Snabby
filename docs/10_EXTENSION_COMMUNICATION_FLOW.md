@@ -802,6 +802,11 @@ The Page Editor introduces two dedicated commands between the React UI and Servi
 - **Purpose**: Persists serialized vector `annotationData` and the newly rendered bounded image Data URL (`renderedImageData`).
 - **Handler**: `SavePageAnnotations` use case. Triggers `SESSION_UPDATED` broadcast to refresh UI thumbnails.
 
+### `CREATE_CUSTOM_PAGE`
+- **Direction**: React UI ──► Service Worker
+- **Purpose**: Generates and persists a blank white A4 custom page (`PageType.CUSTOM`) at an optional target index.
+- **Handler**: `CreateCustomPage` use case. Triggers `SESSION_UPDATED` broadcast to refresh UI thumbnails.
+
 ---
 
 # 30. Final Communication Flow

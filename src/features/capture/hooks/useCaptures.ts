@@ -86,6 +86,33 @@ export const useCaptures = () => {
     }
   };
 
+  const createCustomPage = async (sessionId: string, index?: number): Promise<string | null> => {
+    try {
+      setError(null);
+      const res = await messageBus.request<{
+        success: boolean;
+        data?: { page: { id: string } };
+        error?: { message: string };
+      }>({
+        type: 'CREATE_CUSTOM_PAGE',
+        sessionId,
+        index,
+      } as any);
+
+      if (res && res.success && res.data?.page?.id) {
+        await fetchCaptures();
+        return res.data.page.id;
+      }
+      if (res && res.error) {
+        setError(res.error.message);
+      }
+      return null;
+    } catch (err: any) {
+      setError(err.message || String(err));
+      return null;
+    }
+  };
+
   return {
     captures,
     loading,
@@ -93,6 +120,7 @@ export const useCaptures = () => {
     error,
     triggerCapture,
     deleteCapture,
+    createCustomPage,
     refreshCaptures: fetchCaptures,
   };
 };

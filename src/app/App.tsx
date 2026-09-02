@@ -75,8 +75,23 @@ export const App: React.FC = () => {
     captureInProgress,
     error: captureError,
     deleteCapture,
+    createCustomPage,
     refreshCaptures,
   } = useCaptures();
+
+  const handleInsertCustomPage = async (index: number) => {
+    if (!session) return;
+    try {
+      const newPageId = await createCustomPage(session.id, index);
+      if (newPageId) {
+        setEditingPageId(newPageId as PageId);
+      } else {
+        showToast('Failed to create custom page', 'error');
+      }
+    } catch {
+      showToast('Failed to create custom page', 'error');
+    }
+  };
 
   const {
     exportStatus,
@@ -284,6 +299,7 @@ export const App: React.FC = () => {
               onCheckOcrStatus={checkOcrStatus}
               onSelectCapture={handleSelectCapture}
               onEditCapture={handleEditCapture}
+              onInsertCustomPage={handleInsertCustomPage}
             />
           ) : (
             <NewSessionView

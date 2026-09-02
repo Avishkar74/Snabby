@@ -1271,6 +1271,7 @@ The resulting architecture is:
 | **Use Cases (Session)** | `src/application/session/*.ts` | Orchestrates create, get, update, delete session | Application |
 | **Use Case (Page Editor)** | `src/application/page/GetPageEditorImage.ts` | Fetches `Page` entity and raw screenshot `ImageAsset` for PageEditor initialization | Application |
 | **Use Case (Page Editor)** | `src/application/page/SavePageAnnotations.ts` | Persists vector `annotationData`, creates new composited `ImageAsset`, deletes old rendered asset, updates `Page` | Application |
+| **Use Case (Page Custom)** | `src/application/page/CreateCustomPage.ts` | Generates A4 blank PNG Blob (`1240 × 1754`), persists base `ImageAsset`, calculates target order, saves `Page` atomically | Application |
 | **Use Case (Capture)** | `src/application/page/CreateScreenshotPage.ts` | Orchestrates screenshot acquisition, image processing, atomic persistence, async OCR dispatch | Application |
 | **Use Cases (OCR)** | `src/application/ocr/RunOCR.ts`, `GetOCRResult.ts` | Orchestrates OCR execution and result persistence | Application |
 | **Use Cases (PDF)** | `src/application/pdf/GeneratePDF.ts`, `DownloadPDF.ts` | Orchestrates PDF document assembly and download dispatch | Application |

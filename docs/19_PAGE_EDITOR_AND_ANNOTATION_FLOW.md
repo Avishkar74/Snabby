@@ -81,15 +81,20 @@ Rather than attempting to fork Excalidraw or forcibly clamp live canvas panning/
 The `Page` domain model provides a dynamic getter:
 ```typescript
 public get effectiveRenderedImageId(): ImageId {
-  if (this.type === PageType.CUSTOM) {
-    return this.renderedImageId!;
-  }
-  return this.renderedImageId ?? (this.imageId as ImageId);
+  return (this.renderedImageId ?? this.imageId) as ImageId;
 }
 ```
-All consumer subsystems (side panel thumbnails, lightbox previews, PDF generation) query `page.effectiveRenderedImageId`. If the page has been annotated, `renderedImageId` is returned; otherwise, `imageId` (the raw screenshot) is returned. This allows the entire application to transparently display the latest page state without needing Excalidraw scene parsing logic.
+All consumer subsystems (side panel thumbnails, lightbox previews, PDF generation) query `page.effectiveRenderedImageId`. If the page has been annotated, `renderedImageId` is returned; otherwise, `imageId` (the raw screenshot or blank base image) is returned. This allows the entire application to transparently display the latest page state without needing Excalidraw scene parsing logic.
 
-### 3.4 Dark Mode Export Consistency
+### 3.4 Custom Blank Page Base Asset Foundation
+For custom pages (`PageType.CUSTOM`), Snabby generates a **blank white A4 canvas PNG Blob** (`1240 × 1754`) upon page creation (`CreateCustomPage`).
+- **Initial State**: `Page.imageId` is set to the blank base `ImageAsset` ID, while `Page.renderedImageId` is `undefined`.
+- **Pre-Editing**: `effectiveRenderedImageId` returns `imageId` (rendering a clean blank white A4 page across thumbnails, lightboxes, and PDFs).
+- **Page Editor**: `GetPageEditorImage` loads `page.imageId` (the blank white PNG), establishing a 1240 × 1754 canvas background for vector drawing.
+- **Post-Editing**: `SavePageAnnotations` saves the composited image as `renderedImageId`. `effectiveRenderedImageId` now returns `renderedImageId`.
+- **Re-Editing**: Reopening the editor loads `page.imageId` (the original blank base asset) and restores `annotationData` vector drawings, maintaining 100% non-destructive re-editing parity with screenshot pages.
+
+### 3.5 Dark Mode Export Consistency
 Excalidraw dynamically applies color inversion when running under a dark theme (`theme="dark"`). To ensure that strokes drawn in dark mode maintain their exact visual color when flattened into the side panel preview and PDF, `renderBoundedPageImage` explicitly configures Excalidraw's canvas exporter with:
 ```typescript
 appState: {

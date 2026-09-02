@@ -4,6 +4,8 @@ import type { PagePreview } from '../../capture/hooks/useCaptures.ts';
 import { CaptureCard } from '../../capture/components/CaptureCard.tsx';
 import type { ExportStatus } from '../../pdf/hooks/usePdfExporter.ts';
 
+import { PageInsertGap } from './PageInsertGap.tsx';
+
 interface ActiveSessionViewProps {
   session: Session;
   captures: PagePreview[];
@@ -20,6 +22,7 @@ interface ActiveSessionViewProps {
   onCheckOcrStatus: () => Promise<{ pendingCount: number; totalCount: number }>;
   onSelectCapture: (capture: PagePreview) => void;
   onEditCapture: (id: string) => void;
+  onInsertCustomPage?: (index: number) => Promise<void>;
 }
 
 export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
@@ -38,6 +41,7 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
   onCheckOcrStatus,
   onSelectCapture,
   onEditCapture,
+  onInsertCustomPage,
 }) => {
   const [isDecisionOpen, setIsDecisionOpen] = useState(false);
   const [pendingOcrCount, setPendingOcrCount] = useState(0);
@@ -81,6 +85,12 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
   };
 
   const exportDisabled = captures.length === 0 || exportStatus !== 'idle' || captureInProgress;
+
+  const handleInsertGap = async (index: number) => {
+    if (onInsertCustomPage) {
+      await onInsertCustomPage(index);
+    }
+  };
 
   return (
     <div className="active-session-view">
@@ -150,7 +160,27 @@ export const ActiveSessionView: React.FC<ActiveSessionViewProps> = ({
             </div>
           ) : (
             captures.map((capture, index) => (
-              <CaptureCard key={capture.id} capture={capture} index={index} onDelete={onDeleteCapture} onSelect={onSelectCapture} onEdit={onEditCapture} />
+              <React.Fragment key={capture.id}>
+                {index === 0 && (
+                  <PageInsertGap
+                    index={0}
+                    onInsert={handleInsertGap}
+                    disabled={captureInProgress || exportStatus !== 'idle'}
+                  />
+                )}
+                <CaptureCard
+                  capture={capture}
+                  index={index}
+                  onDelete={onDeleteCapture}
+                  onSelect={onSelectCapture}
+                  onEdit={onEditCapture}
+                />
+                <PageInsertGap
+                  index={index + 1}
+                  onInsert={handleInsertGap}
+                  disabled={captureInProgress || exportStatus !== 'idle'}
+                />
+              </React.Fragment>
             ))
           )}
         </div>

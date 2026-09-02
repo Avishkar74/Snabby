@@ -937,6 +937,7 @@ The finalized Snabby application layer exposes concrete use cases organized by d
 | **Session** | `src/application/session/DeleteSession.ts` | `execute(id: SessionId): Promise<void>` | `SessionRepository` |
 | **Page (editor)** | `src/application/page/GetPageEditorImage.ts` | `execute(pageId: PageId): Promise<PageEditorImageData \| null>` | `PageRepository`, `ImageRepository` |
 | **Page (editor)** | `src/application/page/SavePageAnnotations.ts` | `execute(pageId: PageId, annotationData: string \| null, renderedImageData?: string \| null): Promise<boolean>` | `PageRepository`, `ImageRepository` |
+| **Page (custom)** | `src/application/page/CreateCustomPage.ts` | `execute(input: CreateCustomPageInput): Promise<CreateCustomPageResult>` | `PagePersistenceService`, `PageRepository` |
 | **Page (active)** | `src/application/page/CreateScreenshotPage.ts` | `execute(input: CreateScreenshotPageInput): Promise<CreateScreenshotPageResult>` | `CaptureAdapter`, `ImageProcessor`, `PagePersistenceService`, `PageRepository`, `RunOCR` |
 | **Capture (legacy, inactive)** | `src/application/capture/CaptureScreenshot.ts` | `execute(input: CaptureScreenshotInput): Promise<CaptureScreenshotOutput>` | `CaptureAdapter`, `ImageProcessor`, `CapturePersistenceService`, `CaptureRepository`, `RunOCR` |
 | **OCR** | `src/application/ocr/RunOCR.ts` | `execute(input: RunOCRInput): Promise<OCRResult>` | `OCRService`, `OCRRepository`, `PageRepository` |
