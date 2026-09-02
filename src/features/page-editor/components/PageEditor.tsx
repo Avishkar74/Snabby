@@ -13,6 +13,7 @@ interface PageImageData {
   width: number;
   height: number;
   mimeType: string;
+  annotationData?: string | null;
 }
 
 export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
@@ -21,11 +22,40 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
 
-  // Stable refs for API, active page ID, and initialization tracking
+  // Stable refs for API, active page ID, initialization tracking, and debounced persistence
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const activePageIdRef = useRef<string | null>(pageId);
   const initializedPageIdRef = useRef<string | null>(null);
   const pendingImageDataRef = useRef<PageImageData | null>(null);
+
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAnnotationRef = useRef<{ pageId: string; annotationData: string | null } | null>(null);
+  const lastSavedAnnotationDataRef = useRef<string | null>(null);
+
+  // Synchronous flush function to save any pending unsaved annotations immediately
+  const flushPendingSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    if (pendingAnnotationRef.current) {
+      const { pageId: targetPageId, annotationData } = pendingAnnotationRef.current;
+      if (annotationData !== lastSavedAnnotationDataRef.current) {
+        lastSavedAnnotationDataRef.current = annotationData;
+        try {
+          messageBus.send({
+            type: 'SAVE_PAGE_ANNOTATIONS',
+            pageId: targetPageId,
+            annotationData,
+          } as any);
+        } catch (err) {
+          console.error('[PageEditor] Failed to flush page annotations:', err);
+        }
+      }
+      pendingAnnotationRef.current = null;
+    }
+  }, [messageBus]);
 
   // Helper to populate scene ONCE when image data and API are ready
   const populateScene = useCallback((api: ExcalidrawImperativeAPI, imgData: PageImageData) => {
@@ -44,7 +74,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
 
       // 2. Create Bounded Screenshot Image Element locked at origin (0, 0)
       const imageElementId = `image_${imgData.pageId}`;
-      const elements = convertToExcalidrawElements([
+      const screenshotElements = convertToExcalidrawElements([
         {
           type: 'image',
           id: imageElementId as any,
@@ -58,9 +88,25 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
         },
       ]);
 
-      // 3. Populate scene with screenshot & set dark canvas background
+      // Parse user saved annotations if present
+      let userElements: any[] = [];
+      if (imgData.annotationData) {
+        try {
+          userElements = JSON.parse(imgData.annotationData);
+        } catch (err) {
+          console.warn('[PageEditor] Failed to parse annotationData:', err);
+        }
+      }
+
+      const allElements = [...screenshotElements, ...userElements];
+
+      // Record initial saved annotation state to prevent unnecessary saves
+      lastSavedAnnotationDataRef.current = imgData.annotationData || null;
+      pendingAnnotationRef.current = null;
+
+      // 3. Populate scene with screenshot & saved user elements & set dark canvas background
       api.updateScene({
-        elements,
+        elements: allElements,
         appState: {
           viewBackgroundColor: '#0e0e10',
         },
@@ -69,7 +115,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       // 4. Fit viewport cleanly to screenshot (natively centers screenshot in middle of modal canvas)
       setTimeout(() => {
         try {
-          api.scrollToContent(elements, {
+          api.scrollToContent(screenshotElements, {
             fitToViewport: true,
             viewportZoomFactor: 0.85,
             animate: false,
@@ -83,6 +129,36 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
       setError('Failed to display screenshot on canvas');
     }
   }, []);
+
+  // Debounced change handler when user draws/modifies Excalidraw scene
+  const handleChange = useCallback((elements: readonly any[]) => {
+    const currentPageId = activePageIdRef.current;
+    if (!currentPageId || initializedPageIdRef.current !== currentPageId) {
+      return;
+    }
+
+    const bgImageId = `image_${currentPageId}`;
+    // Filter out screenshot image background and deleted elements
+    const userElements = elements.filter(
+      (el) => el.id !== bgImageId && !el.isDeleted
+    );
+
+    const annotationData = userElements.length > 0 ? JSON.stringify(userElements) : null;
+
+    if (annotationData === lastSavedAnnotationDataRef.current) {
+      return;
+    }
+
+    pendingAnnotationRef.current = { pageId: currentPageId, annotationData };
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      flushPendingSave();
+    }, 500);
+  }, [flushPendingSave]);
 
   // Excalidraw API callback handler
   const handleExcalidrawAPI = useCallback(
@@ -182,13 +258,25 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     };
   }, [pageId, messageBus, populateScene]);
 
+  const handleClose = useCallback(() => {
+    flushPendingSave();
+    onClose();
+  }, [flushPendingSave, onClose]);
+
+  // Flush unsaved pending annotations on component unmount
+  useEffect(() => {
+    return () => {
+      flushPendingSave();
+    };
+  }, [flushPendingSave]);
+
   // Handle ESC key press to close editor modal cleanly
   useEffect(() => {
     if (!pageId) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
 
@@ -196,11 +284,11 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [pageId, onClose]);
+  }, [pageId, handleClose]);
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      onClose();
+      handleClose();
     }
   };
 
@@ -320,7 +408,7 @@ const containerWidth = dimensions
           {/* 6. Prominent Red Close Button (Contains ONLY ×) */}
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               width: '34px',
               height: '34px',
@@ -372,7 +460,7 @@ const containerWidth = dimensions
             }
           `}</style>
 
-          <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} />
+          <Excalidraw theme="dark" excalidrawAPI={handleExcalidrawAPI} onChange={handleChange} />
 
           {loading && (
             <div

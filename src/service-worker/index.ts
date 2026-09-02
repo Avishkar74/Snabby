@@ -16,6 +16,7 @@ import { CreateSession } from '../application/session/CreateSession.ts';
 import { DeleteSession } from '../application/session/DeleteSession.ts';
 import { CreateScreenshotPage } from '../application/page/CreateScreenshotPage.ts';
 import { GetPageEditorImage } from '../application/page/GetPageEditorImage.ts';
+import { SavePageAnnotations } from '../application/page/SavePageAnnotations.ts';
 import { RunOCR } from '../application/ocr/RunOCR.ts';
 import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
 import { DownloadPDF } from '../application/pdf/DownloadPDF.ts';
@@ -45,6 +46,7 @@ const pagePersistenceService = new IndexedDBPagePersistenceService();
 const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
 const getPageEditorImage = new GetPageEditorImage(pageRepo, imageRepo);
+const savePageAnnotations = new SavePageAnnotations(pageRepo);
 // RunOCR uses PageRepository so it can update status on both Capture (via supertype) and Page
 const runOCR = new RunOCR(ocrService, ocrRepo, pageRepo);
 const generatePDF = new GeneratePDF(sessionRepo, pageRepo, ocrRepo, pdfService);
@@ -516,8 +518,13 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               width: imageAsset.width,
               height: imageAsset.height,
               mimeType,
+              annotationData: page.annotationData || null,
             },
           };
+        }
+        case 'SAVE_PAGE_ANNOTATIONS': {
+          const success = await savePageAnnotations.execute(message.pageId as any, message.annotationData as any);
+          return { success };
         }
         case 'CHECK_OCR_STATUS': {
           const sessions = await sessionRepo.findAll();
