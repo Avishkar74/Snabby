@@ -3,7 +3,8 @@ import type { PageRepository } from '../interfaces/repositories/PageRepository.t
 import type { OCRRepository } from '../interfaces/repositories/OCRRepository.ts';
 import type { PDFService } from '../interfaces/services/PDFService.ts';
 import { SessionNotFoundError, NoCapturesError } from './errors.ts';
-import type { SessionId, PageId } from '../../domain/common/ids.ts';
+import type { SessionId } from '../../domain/common/ids.ts';
+import type { Page } from '../../domain/page/Page.ts';
 import { OCRStatus } from '../../domain/ocr/ocr.types.ts';
 
 export interface GeneratePDFInput {
@@ -50,7 +51,7 @@ export class GeneratePDF {
 
     // 3. Handle pending OCR polling if skipPendingOcr is false
     if (!skipPendingOcr) {
-      await this.waitForPendingOcr(sortedPages.map(p => p.id));
+      await this.waitForPendingOcr(sortedPages);
     }
 
     // 4. Call PDFService to assemble the final document
@@ -58,41 +59,44 @@ export class GeneratePDF {
   }
 
   /**
-   * Polls the OCRRepository (NOT Capture.status — which RunOCR never updates)
-   * to determine if all captures have reached a terminal OCR state.
+   * Polls the OCRRepository to determine if all pages have reached a terminal OCR state.
    * 
-   * A capture is "done" when:
-   * - An OCRResult exists with status COMPLETED or FAILED, OR
-   * - No OCRResult exists AND > 60 seconds have passed (hard timeout safety net)
+   * A page is "terminal" if:
+   * - It is a blank un-edited custom page (PageType.CUSTOM without renderedImageId), OR
+   * - An OCRResult exists for page.id with status COMPLETED or FAILED
    */
-  private async waitForPendingOcr(pageIds: PageId[]): Promise<void> {
-    console.log(`[GeneratePDF] Waiting for OCR on ${pageIds.length} page(s)...`);
+  private async waitForPendingOcr(pages: Page[]): Promise<void> {
+    console.log(`[GeneratePDF] Waiting for OCR on ${pages.length} page(s)...`);
     const maxRetries = 60; // 30 seconds max (at 500ms intervals)
     let retries = 0;
 
     while (retries < maxRetries) {
-      // Poll OCRRepository directly — this is the authoritative source for OCR state
       const ocrResults = await Promise.all(
-        pageIds.map(id => this.ocrRepo.findByCaptureId(id))
+        pages.map(p => this.ocrRepo.findByCaptureId(p.id))
       );
 
-      // A capture is "terminal" if it has an OCR result with COMPLETED or FAILED status
-      const allTerminal = ocrResults.every(
-        (result) => result !== null && (
+      const allTerminal = pages.every((page, idx) => {
+        if (page.type === 'CUSTOM' && !page.renderedImageId) {
+          return true; // Blank un-edited custom page needs no OCR
+        }
+        const result = ocrResults[idx];
+        return result !== null && (
           result.status === OCRStatus.COMPLETED || 
           result.status === OCRStatus.FAILED
-        )
-      );
+        );
+      });
 
       if (allTerminal) {
-        console.log(`[GeneratePDF] All ${pageIds.length} OCR result(s) are in terminal state.`);
+        console.log(`[GeneratePDF] All ${pages.length} OCR result(s) are in terminal state.`);
         return;
       }
 
-      const pendingCount = ocrResults.filter(
-        r => r === null || (r.status !== OCRStatus.COMPLETED && r.status !== OCRStatus.FAILED)
-      ).length;
-      console.log(`[GeneratePDF] OCR pending: ${pendingCount}/${pageIds.length}. Waiting 500ms...`);
+      const pendingCount = pages.filter((page, idx) => {
+        if (page.type === 'CUSTOM' && !page.renderedImageId) return false;
+        const r = ocrResults[idx];
+        return r === null || (r.status !== OCRStatus.COMPLETED && r.status !== OCRStatus.FAILED);
+      }).length;
+      console.log(`[GeneratePDF] OCR pending: ${pendingCount}/${pages.length}. Waiting 500ms...`);
 
       await new Promise((resolve) => setTimeout(resolve, 500));
       retries++;

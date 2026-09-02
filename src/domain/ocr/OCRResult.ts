@@ -1,4 +1,4 @@
-import type { CaptureId } from '../common/ids.ts';
+import type { CaptureId, ImageId } from '../common/ids.ts';
 import { ValidationError } from '../common/errors.ts';
 import { OCRStatus } from './ocr.types.ts';
 import type { OCRWord } from './ocr.types.ts';
@@ -11,6 +11,7 @@ export interface IOCRResultProps {
   imageWidth: number;
   imageHeight: number;
   errorDetails?: string;
+  processedImageId?: ImageId;
 }
 
 export class OCRResult implements IOCRResultProps {
@@ -21,6 +22,7 @@ export class OCRResult implements IOCRResultProps {
   public readonly imageWidth: number;
   public readonly imageHeight: number;
   public readonly errorDetails?: string;
+  public readonly processedImageId?: ImageId;
 
   constructor(props: IOCRResultProps) {
     this.captureId = props.captureId;
@@ -30,6 +32,7 @@ export class OCRResult implements IOCRResultProps {
     this.imageWidth = props.imageWidth;
     this.imageHeight = props.imageHeight;
     this.errorDetails = props.errorDetails;
+    this.processedImageId = props.processedImageId;
     this.validate();
   }
 

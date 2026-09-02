@@ -528,6 +528,21 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           const success = await savePageAnnotations.execute(message.pageId as any, message.annotationData as any, message.renderedImageData as any);
           if (success && message.renderedImageData) {
             broadcastMessage({ type: 'SESSION_UPDATED' });
+
+            // Trigger RunOCR on the newly rendered image asset asynchronously
+            (async () => {
+              try {
+                const page = await pageRepo.findById(message.pageId as any);
+                if (page && page.effectiveRenderedImageId) {
+                  const imageAsset = await imageRepo.findById(page.effectiveRenderedImageId as any);
+                  if (imageAsset) {
+                    await runOCR.execute({ page, image: imageAsset });
+                  }
+                }
+              } catch (ocrErr) {
+                console.warn('[Service Worker] Async OCR execution failed on edited page:', ocrErr);
+              }
+            })();
           }
           return { success };
         }
@@ -562,9 +577,28 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           }
           const pages = await pageRepo.findBySessionId(sessions[0].id);
           const ocrResults = await Promise.all(pages.map(p => ocrRepo.findByCaptureId(p.id)));
-          const completedOrFailedCount = ocrResults.filter(
-            r => r && (r.status === OCRStatus.COMPLETED || r.status === OCRStatus.FAILED)
-          ).length;
+
+          let completedOrFailedCount = 0;
+          for (let i = 0; i < pages.length; i++) {
+            const page = pages[i];
+            const ocr = ocrResults[i];
+
+            // Blank un-edited custom pages do not require OCR
+            if (page.type === 'CUSTOM' && !page.renderedImageId) {
+              completedOrFailedCount++;
+              continue;
+            }
+
+            // Page OCR is complete for the current visual version if result exists and processedImageId matches (or legacy unversioned result)
+            if (
+              ocr &&
+              (ocr.processedImageId === page.effectiveRenderedImageId || !ocr.processedImageId) &&
+              (ocr.status === OCRStatus.COMPLETED || ocr.status === OCRStatus.FAILED)
+            ) {
+              completedOrFailedCount++;
+            }
+          }
+
           const totalCount = pages.length;
           const pendingCount = totalCount - completedOrFailedCount;
           return {

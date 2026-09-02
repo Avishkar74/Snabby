@@ -1,7 +1,7 @@
 import { OCRResult } from '../../../domain/ocr/OCRResult.ts';
 import { OCRStatus } from '../../../domain/ocr/ocr.types.ts';
 import type { OCRWord } from '../../../domain/ocr/ocr.types.ts';
-import type { CaptureId } from '../../../domain/common/ids.ts';
+import type { CaptureId, ImageId } from '../../../domain/common/ids.ts';
 
 export interface OCRResultRecord {
   captureId: string;
@@ -10,6 +10,8 @@ export interface OCRResultRecord {
   words: OCRWord[];
   imageWidth: number;
   imageHeight: number;
+  errorDetails?: string;
+  processedImageId?: string;
 }
 
 export class OCRMapper {
@@ -21,6 +23,8 @@ export class OCRMapper {
       words: result.words,
       imageWidth: result.imageWidth,
       imageHeight: result.imageHeight,
+      errorDetails: result.errorDetails,
+      processedImageId: result.processedImageId,
     };
   }
 
@@ -32,6 +36,8 @@ export class OCRMapper {
       words: record.words,
       imageWidth: record.imageWidth,
       imageHeight: record.imageHeight,
+      errorDetails: record.errorDetails,
+      processedImageId: record.processedImageId as ImageId | undefined,
     });
   }
 }

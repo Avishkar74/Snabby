@@ -210,7 +210,23 @@ To prevent accidental unmounting or modal dismissal during drawing:
 
 ---
 
-## 7. Error Handling & Edge Cases
+## 8. Version-Aware OCR & Retry Safety Lifecycle
+
+Snabby enforces a **version-aware OCR lifecycle** that automatically re-runs OCR when page content is edited, while strictly preventing infinite OCR loops or background retry storms:
+
+1. **Visual Version Association (`OCRResult.processedImageId`)**:
+   - `OCRResult` persists the exact `processedImageId` (matching `page.effectiveRenderedImageId`) for which OCR was performed.
+   - An OCR result is considered **up-to-date** if `ocrResult.processedImageId === page.effectiveRenderedImageId`.
+
+2. **Editing & Stale OCR Invalidation**:
+   - When a user edits a page (screenshot or custom page) and saves, `SavePageAnnotations` creates a new rendered `ImageAsset` (`newImageId`).
+   - `SavePageAnnotations` triggers `RunOCR` asynchronously on `newImageId`.
+   - `RunOCR` processes the new rendered image, stores the resulting `OCRResult` with `processedImageId = newImageId`, and updates `Page.status`.
+
+3. **Blank Page & Scribble/No-Text Safety**:
+   - **Blank Custom Pages**: Newly created un-edited custom pages (`PageType.CUSTOM` without `renderedImageId`) skip OCR processing entirely (0 pending OCRs).
+   - **Scribbles / Non-Text Content**: When OCR processes an image containing only scribbles, shapes, or diagrams, Tesseract finishes with `status: COMPLETED` and `fullText: ""`. This is marked as **COMPLETED for this image version** and will **never be retried automatically**.
+   - **Genuine Failures**: System failures finish as `status: FAILED` with `processedImageId = currentImageId`. They are marked as failed for that visual version and will not loop indefinitely.
 
 1. **Stale Async Load Protection**: `PageEditor` tracks `activePageIdRef`. If the user switches pages rapidly while a `GET_PAGE_EDITOR_IMAGE` request is in-flight, responses for outdated `pageId`s are discarded.
 2. **Editor Unmount Flush**: `useEffect` cleanup and `handleClose` trigger `flushPendingSave()` synchronously, ensuring any un-saved drawings are flushed before the component unmounts.

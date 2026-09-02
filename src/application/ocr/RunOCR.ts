@@ -70,7 +70,8 @@ export class RunOCR {
         words: serviceResult.words,
         imageWidth: serviceResult.imageWidth,
         imageHeight: serviceResult.imageHeight,
-        errorDetails: serviceResult.errorDetails
+        errorDetails: serviceResult.errorDetails,
+        processedImageId: input.image.id,
       });
 
       await this.ocrRepository.save(ocrResult);
@@ -108,7 +109,8 @@ export class RunOCR {
           words: [],
           imageWidth: input.image.width,
           imageHeight: input.image.height,
-          errorDetails: errorMsg
+          errorDetails: errorMsg,
+          processedImageId: input.image.id,
         });
         await this.ocrRepository.save(failedOcrResult);
       } catch (e) {

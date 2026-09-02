@@ -253,7 +253,8 @@ OCRResult
 ├── words
 ├── imageWidth
 ├── imageHeight
-└── errorDetails (optional — populated when status is FAILED)
+├── errorDetails (optional — populated when status is FAILED)
+└── processedImageId (optional — ImageId of the exact image version processed by OCR)
 ```
 
 Conceptually:
@@ -267,6 +268,7 @@ OCRResult {
     imageWidth: number
     imageHeight: number
     errorDetails?: string
+    processedImageId?: ImageId
 }
 ```
 

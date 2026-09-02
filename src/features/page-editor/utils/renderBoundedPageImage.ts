@@ -4,6 +4,76 @@ import { exportToCanvas } from '@excalidraw/excalidraw';
 // This constant matches Excalidraw's internal DEFAULT_EXPORT_PADDING.
 const EXCALIDRAW_EXPORT_PADDING = 10;
 
+interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/**
+ * Calculates the exact scene bounding box for a set of Excalidraw elements.
+ * Correctly accounts for points arrays (freedraw/line/arrow), stroke widths,
+ * and element dimensions.
+ */
+function getElementsBounds(elements: any[]): Bounds {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const el of elements) {
+    if (!el || el.isDeleted || el.type === 'image') continue;
+
+    let elMinX = el.x;
+    let elMinY = el.y;
+    let elMaxX = el.x + (el.width || 0);
+    let elMaxY = el.y + (el.height || 0);
+
+    // Points-based elements (freedraw, line, arrow) store relative point offsets from (el.x, el.y)
+    if (Array.isArray(el.points) && el.points.length > 0) {
+      let pMinX = Infinity;
+      let pMinY = Infinity;
+      let pMaxX = -Infinity;
+      let pMaxY = -Infinity;
+
+      for (const pt of el.points) {
+        if (Array.isArray(pt) && pt.length >= 2) {
+          const absX = el.x + pt[0];
+          const absY = el.y + pt[1];
+          if (absX < pMinX) pMinX = absX;
+          if (absX > pMaxX) pMaxX = absX;
+          if (absY < pMinY) pMinY = absY;
+          if (absY > pMaxY) pMaxY = absY;
+        }
+      }
+
+      if (pMinX !== Infinity) elMinX = pMinX;
+      if (pMinY !== Infinity) elMinY = pMinY;
+      if (pMaxX !== -Infinity) elMaxX = pMaxX;
+      if (pMaxY !== -Infinity) elMaxY = pMaxY;
+    }
+
+    // Account for stroke width expansion
+    const halfStroke = (el.strokeWidth || 2) / 2;
+    elMinX -= halfStroke;
+    elMinY -= halfStroke;
+    elMaxX += halfStroke;
+    elMaxY += halfStroke;
+
+    if (elMinX < minX) minX = elMinX;
+    if (elMinY < minY) minY = elMinY;
+    if (elMaxX > maxX) maxX = elMaxX;
+    if (elMaxY > maxY) maxY = elMaxY;
+  }
+
+  if (minX === Infinity) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
 /**
  * Generates a final rendered image bounding all Excalidraw annotations precisely
  * to the original screenshot dimensions. Anything drawn outside is strictly cropped.
@@ -22,19 +92,18 @@ export async function renderBoundedPageImage(
   mimeType: string,
   annotationData: string
 ): Promise<string> {
-  const elements = JSON.parse(annotationData || '[]');
+  const allElements = JSON.parse(annotationData || '[]');
+  const userElements = allElements.filter((el: any) => el.type !== 'image' && !el.isDeleted);
 
-  if (elements.length === 0) {
+  if (userElements.length === 0) {
     return originalImageDataUrl;
   }
 
   return new Promise(async (resolve, reject) => {
     try {
       // 1. Export ONLY the user-drawn elements to a transparent canvas via Excalidraw's API.
-      //    We do NOT pass getDimensions here — let Excalidraw export the natural bounding box
-      //    so we get reliable size and can correctly place them on our output canvas.
       const excalidrawCanvas = await exportToCanvas({
-        elements,
+        elements: userElements,
         appState: {
           exportBackground: false,
           viewBackgroundColor: 'transparent',
@@ -44,14 +113,8 @@ export async function renderBoundedPageImage(
         files: null,
       });
 
-      // 2. Calculate the bounding box of the user-drawn elements (in scene coordinates).
-      let minX = Infinity;
-      let minY = Infinity;
-
-      elements.forEach((el: any) => {
-        if (el.x < minX) minX = el.x;
-        if (el.y < minY) minY = el.y;
-      });
+      // 2. Calculate the exact bounding box of the user-drawn elements (in scene coordinates).
+      const bounds = getElementsBounds(userElements);
 
       // 3. Prepare our bounded output canvas — exact original screenshot dimensions.
       const outputCanvas = document.createElement('canvas');
@@ -73,11 +136,11 @@ export async function renderBoundedPageImage(
 
         // 5. Draw Excalidraw annotations on top.
         //
-        // Excalidraw's exported canvas starts at (minX - padding, minY - padding)
+        // Excalidraw's exported canvas starts at (bounds.minX - padding, bounds.minY - padding)
         // relative to the scene. To place it correctly on our screenshot-based
-        // output canvas we offset by (minX - padding).
-        const drawX = minX - EXCALIDRAW_EXPORT_PADDING;
-        const drawY = minY - EXCALIDRAW_EXPORT_PADDING;
+        // output canvas we offset by (bounds.minX - padding).
+        const drawX = bounds.minX - EXCALIDRAW_EXPORT_PADDING;
+        const drawY = bounds.minY - EXCALIDRAW_EXPORT_PADDING;
         ctx.drawImage(excalidrawCanvas, drawX, drawY);
 
         // 6. Convert final composited canvas back to Data URL.
