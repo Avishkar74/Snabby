@@ -15,6 +15,7 @@ import { ChromeDownloadAdapter } from '../infrastructure/chrome/downloads/Chrome
 import { CreateSession } from '../application/session/CreateSession.ts';
 import { DeleteSession } from '../application/session/DeleteSession.ts';
 import { CreateScreenshotPage } from '../application/page/CreateScreenshotPage.ts';
+import { CreateCustomPage } from '../application/page/CreateCustomPage.ts';
 import { GetPageEditorImage } from '../application/page/GetPageEditorImage.ts';
 import { SavePageAnnotations } from '../application/page/SavePageAnnotations.ts';
 import { RunOCR } from '../application/ocr/RunOCR.ts';
@@ -47,6 +48,7 @@ const createSession = new CreateSession(sessionRepo);
 const deleteSession = new DeleteSession(sessionRepo);
 const getPageEditorImage = new GetPageEditorImage(pageRepo, imageRepo);
 const savePageAnnotations = new SavePageAnnotations(pageRepo, imageRepo);
+const createCustomPage = new CreateCustomPage(pagePersistenceService, pageRepo);
 // RunOCR uses PageRepository so it can update status on both Capture (via supertype) and Page
 const runOCR = new RunOCR(ocrService, ocrRepo, pageRepo);
 const generatePDF = new GeneratePDF(sessionRepo, pageRepo, ocrRepo, pdfService);
@@ -528,6 +530,27 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             broadcastMessage({ type: 'SESSION_UPDATED' });
           }
           return { success };
+        }
+        case 'CREATE_CUSTOM_PAGE': {
+          const result = await createCustomPage.execute({
+            sessionId: message.sessionId,
+            index: message.index,
+          });
+          if (result && result.page) {
+            broadcastMessage({ type: 'SESSION_UPDATED' });
+            return {
+              success: true,
+              data: { page: result.page },
+            };
+          }
+          return {
+            success: false,
+            error: {
+              code: 'CREATE_CUSTOM_PAGE_FAILED',
+              message: 'Failed to create custom page',
+              operation: 'CREATE_CUSTOM_PAGE',
+            },
+          };
         }
         case 'CHECK_OCR_STATUS': {
           const sessions = await sessionRepo.findAll();

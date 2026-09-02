@@ -8,6 +8,9 @@ export const PageType = {
 
 export type PageType = typeof PageType[keyof typeof PageType];
 
+export const CUSTOM_PAGE_WIDTH = 1240;
+export const CUSTOM_PAGE_HEIGHT = 1754;
+
 export const PageSource = {
   FULL_SCREEN: 'FULL_SCREEN',
   CROP_REGION: 'CROP_REGION',

@@ -37,10 +37,7 @@ export class Page implements IPageProps {
   }
 
   public get effectiveRenderedImageId(): ImageId {
-    if (this.type === PageType.CUSTOM) {
-      return this.renderedImageId!;
-    }
-    return this.renderedImageId ?? (this.imageId as ImageId);
+    return (this.renderedImageId ?? this.imageId) as ImageId;
   }
 
   private validate(): void {
@@ -55,11 +52,8 @@ export class Page implements IPageProps {
         throw new ValidationError('Original Image ID is required for screenshot pages');
       }
     } else if (this.type === PageType.CUSTOM) {
-      if (this.imageId) {
-        throw new ValidationError('Original Image ID must be null or absent for custom pages');
-      }
-      if (!this.renderedImageId) {
-        throw new ValidationError('Rendered Image ID is required for custom pages');
+      if (!this.imageId && !this.renderedImageId) {
+        throw new ValidationError('At least one of Original Image ID or Rendered Image ID is required for custom pages');
       }
     } else {
       throw new ValidationError(`Invalid page type: ${this.type}`);
@@ -97,6 +91,23 @@ export class Page implements IPageProps {
       source,
       createdAt: createTimestamp(),
       status: ProcessingStatus.PENDING,
+      version: 1,
+    });
+  }
+
+  public static createCustom(
+    sessionId: SessionId,
+    imageId: ImageId,
+    order: number
+  ): Page {
+    return new Page({
+      id: createPageId(),
+      sessionId,
+      type: PageType.CUSTOM,
+      imageId,
+      order,
+      createdAt: createTimestamp(),
+      status: ProcessingStatus.COMPLETED,
       version: 1,
     });
   }
