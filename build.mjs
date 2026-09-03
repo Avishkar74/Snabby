@@ -53,13 +53,22 @@ async function runBuild() {
     },
   });
 
-  // Post-process popup.js to escape non-ASCII characters into \uXXXX code units
-  // Chrome content script loader rejects bundles containing raw non-ASCII / non-UTF8 bytes with "It isn't UTF-8 encoded"
-  console.log('Sanitizing popup.js encoding for Chrome content script compatibility...');
+  // Post-process popup.js:
+  // 1. Replace deprecated 'unload' window listener from Excalidraw with 'pagehide'
+  // Chrome Permissions Policy on sites like GitHub rejects 'unload' listeners with:
+  // "Permissions policy violation: unload is not allowed in this document."
+  // 2. Escape non-ASCII characters into \uXXXX code units for Chrome UTF-8 loader compatibility
+  console.log('Sanitizing popup.js for Chrome content script compatibility...');
   const popupJsPath = resolve(import.meta.dirname, 'dist/assets/popup.js');
   if (existsSync(popupJsPath)) {
-    const rawContent = readFileSync(popupJsPath, 'utf-8');
-    const sanitizedContent = rawContent.replace(/[\u0080-\uFFFF]/g, (c) => {
+    let content = readFileSync(popupJsPath, 'utf-8');
+
+    // Replace window 'unload' registrations with 'pagehide'
+    content = content.replace(/(window\s*,\s*[`'"])unload([`'"])/g, '$1pagehide$2');
+    content = content.replace(/addEventListener\(\s*[`'"]unload[`'"]/g, 'addEventListener("pagehide"');
+    content = content.replace(/removeEventListener\(\s*[`'"]unload[`'"]/g, 'removeEventListener("pagehide"');
+
+    const sanitizedContent = content.replace(/[\u0080-\uFFFF]/g, (c) => {
       return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
     });
     writeFileSync(popupJsPath, sanitizedContent, 'utf-8');

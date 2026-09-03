@@ -1,3 +1,33 @@
+// Intercept deprecated 'unload' event registrations to prevent Permissions Policy violations
+// on modern websites (e.g. GitHub: Permissions-Policy: unload=()).
+// Redirect to 'pagehide' as recommended by W3C/Chrome.
+if (typeof window !== 'undefined' && window.addEventListener) {
+  const _origWindowAddEventListener = window.addEventListener;
+  const _origWindowRemoveEventListener = window.removeEventListener;
+
+  window.addEventListener = function (
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) {
+    if (type === 'unload') {
+      return _origWindowAddEventListener.call(window, 'pagehide', listener, options);
+    }
+    return _origWindowAddEventListener.call(this, type, listener, options);
+  };
+
+  window.removeEventListener = function (
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions
+  ) {
+    if (type === 'unload') {
+      return _origWindowRemoveEventListener.call(window, 'pagehide', listener, options);
+    }
+    return _origWindowRemoveEventListener.call(this, type, listener, options);
+  };
+}
+
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './app/App.tsx';
