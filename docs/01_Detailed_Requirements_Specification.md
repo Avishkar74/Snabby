@@ -881,7 +881,34 @@ Requirements:
 
 ---
 
-# 33. High-Level Requirements Summary
+---
+
+# 34. Requirement: Selectable OCR Text in Image Preview / Lightbox
+
+Users must be able to select and copy text directly from the image preview/lightbox that opens when clicking a capture thumbnail in the Snabby side panel.
+
+### Visual Appearance & Selection Mechanics
+1. **Unchanged Image Appearance**: The rendered preview image must remain visually untouched (no visible bounding boxes or distracting overlays by default).
+2. **Transparent Text Layer**: Selectable text must be overlaid across the image using visually transparent text elements (`color: transparent`).
+3. **Native Selection Highlighting**: When the user clicks and drags over text, the browser selection highlight must be clearly visible (e.g. `background: rgba(59, 130, 246, 0.45)`) while keeping text transparent so the underlying screenshot remains sharp and readable.
+4. **Clipboard Copying**: Standard keyboard (`Ctrl+C` / `Cmd+C`) and context menu copy operations must place the selected text into the system clipboard in natural reading order.
+
+### Alignment & Dimension Contract
+1. **Rendered Image Element Sizing**: The selectable OCR overlay must match the exact rendered width, height, and viewport offsets of the visible `<img>` element rather than arbitrary container bounds.
+2. **Responsive Scaling**: Words must be scaled dynamically from original image coordinate space to rendered viewport pixel space:
+   $$\text{scaleX} = \frac{\text{renderedRect.width}}{\text{imageWidth}}, \quad \text{scaleY} = \frac{\text{renderedRect.height}}{\text{imageHeight}}$$
+3. **Exact Bounding Boxes**: Visual word positioning must preserve the raw word bounding box from OCR without truncation or cumulative distortion.
+4. **Dynamic Resizing**: The overlay must adjust seamlessly on window resize, viewport recalculation, and image orientation changes using `ResizeObserver`.
+
+### Version Matching Contract
+1. **Version Match Enforcement**: The selectable OCR overlay must only be rendered when `OCRResult.status === COMPLETED` and `OCRResult.processedImageId` matches the currently displayed `page.effectiveRenderedImageId`.
+2. **Annotation Invalidation**: When a page is edited and annotated, the previous OCR overlay must not be displayed over the newly modified image until fresh OCR has completed for the new rendered image.
+3. **Zero Redundant Processing**: If valid OCR results already exist for the active image version, opening the preview must immediately reuse the cached data without re-triggering Tesseract OCR.
+4. **Self-Healing**: If a page exists but previously saved OCR data is missing word bounding boxes, the system must trigger background OCR computation to backfill the word bounding boxes automatically.
+
+---
+
+# 35. High-Level Requirements Summary
 
 The entire v1 can therefore be viewed as:
 
@@ -903,7 +930,7 @@ The entire v1 can therefore be viewed as:
    Image Processing
           │
           ▼
-         OCR ──► Persist OCR Result
+         OCR ──► Persist OCR Result (words & bboxes)
           │
           ▼
      IndexedDB
@@ -911,7 +938,8 @@ The entire v1 can therefore be viewed as:
           ▼
        React UI
           │
-          ├── View
+          ├── View (Lightbox + Selectable OCR Overlay)
+          ├── Edit (Bounded Page Annotator)
           ├── Reorder
           └── Delete
           │
@@ -919,7 +947,7 @@ The entire v1 can therefore be viewed as:
     Generate PDF
           │
           ├── Image
-          └── OCR Text Layer
+          └── Searchable OCR Text Layer
           │
           ▼
        PDF Blob
@@ -927,5 +955,6 @@ The entire v1 can therefore be viewed as:
           ▼
        Download
 ```
+
 
 

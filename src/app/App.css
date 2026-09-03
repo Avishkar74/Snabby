@@ -942,6 +942,48 @@
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
   display: block;
 }
+.wsn-lightbox-img-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: calc(90vh - 80px);
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* ─── Selectable OCR Text Overlay ─── */
+.wsn-ocr-overlay {
+  position: absolute;
+  pointer-events: auto !important;
+  overflow: hidden;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text;
+  z-index: 5;
+}
+
+.wsn-ocr-word {
+  position: absolute;
+  color: transparent !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  white-space: pre !important;
+  cursor: text;
+  display: inline-block !important;
+}
+
+.wsn-ocr-overlay ::selection,
+.wsn-ocr-word::selection {
+  background: rgba(59, 130, 246, 0.45) !important;
+  color: transparent !important;
+}
+
+.wsn-ocr-overlay ::-moz-selection,
+.wsn-ocr-word::-moz-selection {
+  background: rgba(59, 130, 246, 0.45) !important;
+  color: transparent !important;
+}
 .wsn-lightbox-caption {
   color: rgba(255, 255, 255, 0.75);
   font-size: 13px;

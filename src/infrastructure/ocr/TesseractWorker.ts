@@ -70,27 +70,72 @@ export class TesseractWorker {
 
     try {
       const worker = await this.getWorker();
-      console.log('[TesseractWorker] Running text recognition...');
-      const result = await worker.recognize(dataUrl);
+      console.log('[TesseractWorker] Running text recognition with blocks enabled...');
+      const result = await worker.recognize(dataUrl, {}, { blocks: true, text: true });
       console.log('[TesseractWorker] Text recognition complete.');
 
-      const { text, confidence, words } = result.data;
+      const text = result.data?.text || '';
+      const confidence = result.data?.confidence || 0;
 
-      // Extract and map word level details
-      const mappedWords = (words || []).map((w: any) => ({
-        text: w.text || '',
-        confidence: w.confidence || 0,
-        bbox: {
-          x0: w.bbox?.x0 || 0,
-          y0: w.bbox?.y0 || 0,
-          x1: w.bbox?.x1 || 0,
-          y1: w.bbox?.y1 || 0
+      // Extract and map word level details from blocks hierarchy
+      const mappedWords: Array<{
+        text: string;
+        confidence: number;
+        bbox: { x0: number; y0: number; x1: number; y1: number };
+      }> = [];
+
+      if (Array.isArray(result.data?.blocks)) {
+        for (const block of result.data.blocks) {
+          for (const paragraph of (block.paragraphs || [])) {
+            for (const line of (paragraph.lines || [])) {
+              for (const word of (line.words || [])) {
+                if (word && word.text && word.bbox) {
+                  const cleanText = String(word.text).trim();
+                  if (cleanText) {
+                    mappedWords.push({
+                      text: cleanText,
+                      confidence: typeof word.confidence === 'number' ? word.confidence : 0,
+                      bbox: {
+                        x0: word.bbox.x0 || 0,
+                        y0: word.bbox.y0 || 0,
+                        x1: word.bbox.x1 || 0,
+                        y1: word.bbox.y1 || 0,
+                      },
+                    });
+                  }
+                }
+              }
+            }
+          }
         }
-      }));
+      }
+
+      // Fallback: if blocks was empty but result.data.words exists
+      if (mappedWords.length === 0 && Array.isArray(result.data?.words)) {
+        for (const word of result.data.words) {
+          if (word && word.text && word.bbox) {
+            const cleanText = String(word.text).trim();
+            if (cleanText) {
+              mappedWords.push({
+                text: cleanText,
+                confidence: typeof word.confidence === 'number' ? word.confidence : 0,
+                bbox: {
+                  x0: word.bbox.x0 || 0,
+                  y0: word.bbox.y0 || 0,
+                  x1: word.bbox.x1 || 0,
+                  y1: word.bbox.y1 || 0,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      console.log(`[TesseractWorker] Extracted ${mappedWords.length} words with bounding boxes.`);
 
       return {
-        text: text || '',
-        confidence: confidence || 0,
+        text,
+        confidence,
         words: mappedWords
       };
     } catch (err: unknown) {

@@ -327,7 +327,7 @@ The card should receive data through props rather than querying IndexedDB itself
 
 ---
 
-# 11. Capture Preview
+# 11. Capture Preview & Selectable OCR Text Layer
 
 When the user opens a capture:
 
@@ -336,14 +336,25 @@ Capture Card
      ↓
 Select Capture
      ↓
-React State
+React State (selectedCapture)
      ↓
-Preview / Lightbox
+LightboxPreview Modal
+     ↓
+Fetch OCR Result (`GET_PAGE_OCR`)
+     ↓
+Version Check (`ocrResult.processedImageId === page.effectiveRenderedImageId`)
+     ↓
+Measure Rendered `<img>` (`ResizeObserver` / `getBoundingClientRect`)
+     ↓
+OCRTextOverlay (Scaled Word Spans, transparent text + selection highlight)
 ```
 
-The preview is a UI concern.
-
-The underlying image remains stored independently.
+### Preview Features
+1. **Full-Screen Lightbox**: Centers the screenshot preview with backdrop dismiss (`ESC` key or backdrop click) and keyboard navigation (`Left` / `Right` arrows).
+2. **Selectable OCR Overlay**: Positions an invisible layer of text spans over the rendered screenshot. Each span matches an OCR word's visual bounding box scaled from original image space to viewport coordinates.
+3. **Interactive Text Selection**: Users can click, drag, and copy text directly from the preview image with standard OS keybindings (`Ctrl+C` / `Cmd+C`).
+4. **Version Contract**: The overlay automatically hides if the page has been edited and fresh OCR is still processing, preventing mismatched overlays.
+5. **Background Auto-Healing**: If the capture had legacy OCR without word bounding boxes, `GET_PAGE_OCR` triggers background OCR backfill and updates the overlay upon `OCR_COMPLETED`.
 
 ---
 
@@ -897,7 +908,8 @@ Not part of v1 (displayed options disabled or omitted):
 | **Active Session View** | `src/features/session/components/ActiveSessionView.tsx` | Renders session header, capture count, mode toggle, scrollable thumbnail grid, edit buttons, and bottom "Download PDF" button. | `CaptureCard`, `DecisionModal` |
 | **New Session View** | `src/features/session/components/NewSessionView.tsx` | Renders session name input, mode selection cards (Full Screen vs Crop Region), and "Start Capture Session" button. | React |
 | **Capture Card** | `src/features/capture/components/CaptureCard.tsx` | Thumbnail card with order badge, edit button (`onEditCapture`), delete button, and lightbox click handler. | React |
-| **Lightbox Preview** | `src/features/capture/components/LightboxPreview.tsx` | Full-screen image lightbox modal with backdrop dismiss and keyboard navigation. | React, DOM keyboard events |
+| **Lightbox Preview** | `src/features/capture/components/LightboxPreview.tsx` | Full-screen image lightbox modal with backdrop dismiss and keyboard navigation. Coordinates OCR fetching (`GET_PAGE_OCR`) and dimensions measurement (`ResizeObserver`). | React, DOM keyboard events, `useMessageBus` |
+| **OCR Text Overlay** | `src/features/capture/components/OCRTextOverlay.tsx` | Scales OCR word bounding boxes to rendered image viewport and renders transparent selectable spans with native text selection highlight. | React |
 | **Page Editor Modal** | `src/features/page-editor/components/PageEditor.tsx` | Full-screen modal overlay hosting Excalidraw canvas. Performs scene initialization (`useMemo`), debounced auto-save, overlay event containment, and ESC shortcut. | Excalidraw, `renderBoundedPageImage`, `useMessageBus` |
 
 ---

@@ -22,6 +22,7 @@ import { RunOCR } from '../application/ocr/RunOCR.ts';
 import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
 import { DownloadPDF } from '../application/pdf/DownloadPDF.ts';
 import { OCRStatus } from '../domain/ocr/ocr.types.ts';
+import { PageType } from '../domain/page/page.types.ts';
 
 console.log('[Service Worker] Initializing Snabby service worker...');
 
@@ -627,6 +628,62 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
           return {
             success: true,
             data: { pendingCount, totalCount }
+          };
+        }
+        case 'GET_PAGE_OCR': {
+          const page = await pageRepo.findById(message.pageId);
+          if (!page) {
+            return { success: true, data: { ocrResult: null, currentRenderedImageId: null } };
+          }
+          const ocr = await ocrRepo.findByCaptureId(page.id);
+
+          // Auto-heal: If page exists and OCR is missing or completed with empty words,
+          // trigger RunOCR to compute words and bounding boxes in the background
+          if (
+            (!ocr || (ocr.status === OCRStatus.COMPLETED && (!ocr.words || ocr.words.length === 0))) &&
+            page.type === PageType.SCREENSHOT
+          ) {
+            const imageAsset = await imageRepo.findById(page.effectiveRenderedImageId);
+            if (imageAsset) {
+              console.log(`[Service Worker] Auto-healing OCR words for page ${page.id}...`);
+              runOCR.execute({ page, image: imageAsset }).catch((err) => {
+                console.warn('[Service Worker] Auto-healing OCR failed:', err);
+              });
+            }
+          }
+
+          if (!ocr) {
+            return {
+              success: true,
+              data: { ocrResult: null, currentRenderedImageId: page.effectiveRenderedImageId }
+            };
+          }
+
+          let width = ocr.imageWidth;
+          let height = ocr.imageHeight;
+          if (width <= 0 || height <= 0) {
+            const imageAsset = await imageRepo.findById(page.effectiveRenderedImageId);
+            if (imageAsset) {
+              width = imageAsset.width;
+              height = imageAsset.height;
+            }
+          }
+
+          return {
+            success: true,
+            data: {
+              ocrResult: {
+                captureId: ocr.captureId,
+                status: ocr.status,
+                fullText: ocr.fullText,
+                words: ocr.words,
+                imageWidth: width,
+                imageHeight: height,
+                processedImageId: ocr.processedImageId,
+                errorDetails: ocr.errorDetails,
+              },
+              currentRenderedImageId: page.effectiveRenderedImageId
+            }
           };
         }
         case 'CAPTURE_REQUEST': {

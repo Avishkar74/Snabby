@@ -100,7 +100,20 @@ Feature-specific React UI.
 src/features/
 │
 ├── session/
+│   ├── components/
+│   │   ├── ActiveSessionView.tsx
+│   │   ├── DecisionModal.tsx
+│   │   └── NewSessionView.tsx
+│   └── hooks/
+│       └── useSession.ts
 ├── capture/
+│   ├── components/
+│   │   ├── CaptureCard.tsx
+│   │   ├── FloatingMascot.tsx
+│   │   ├── LightboxPreview.tsx
+│   │   └── OCRTextOverlay.tsx
+│   └── hooks/
+│       └── useCaptures.ts
 ├── page-editor/
 │   ├── components/
 │   │   └── PageEditor.tsx
@@ -109,8 +122,9 @@ src/features/
 │   ├── utils/
 │   │   └── renderBoundedPageImage.ts
 │   └── index.ts
-├── preview/
 └── pdf/
+    └── hooks/
+        └── usePdfExporter.ts
 ```
 
 Each feature can contain:

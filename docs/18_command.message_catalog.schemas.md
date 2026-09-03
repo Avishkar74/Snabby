@@ -544,6 +544,73 @@ The existing implementation already uses `skipPendingOcr` for this behavior.
 
 ---
 
+# 14.1 `GET_PAGE_OCR`
+
+### Direction
+
+```text
+React → Service Worker
+```
+
+Queries the persisted OCR result and effective rendered image ID for a specific page so the React UI can construct an aligned, selectable text overlay in the lightbox modal.
+
+### Request
+
+```ts
+{
+  type: "GET_PAGE_OCR",
+  pageId: string
+}
+```
+
+### Success
+
+```ts
+{
+  success: true,
+  data: {
+    ocrResult: {
+      captureId: string,
+      status: "NOT_STARTED" | "PROCESSING" | "COMPLETED" | "FAILED",
+      fullText: string,
+      words: Array<{
+        text: string,
+        confidence: number,
+        boundingBox: {
+          x: number,
+          y: number,
+          width: number,
+          height: number
+        }
+      }>,
+      imageWidth: number,
+      imageHeight: number,
+      processedImageId?: string,
+      errorDetails?: string
+    } | null,
+    currentRenderedImageId: string | null
+  }
+}
+```
+
+### Failure
+
+```ts
+{
+  success: false,
+  error: {
+    code: "OPERATION_FAILED",
+    message: string,
+    operation: "GET_PAGE_OCR"
+  }
+}
+```
+
+### Auto-Healing Contract
+If the requested page exists in IndexedDB but its OCR result is missing or contains an empty words array (`words.length === 0`), the Service Worker automatically initiates background OCR computation via `RunOCR` and broadcasts `OCR_COMPLETED` when ready.
+
+---
+
 # 15. OCR-incomplete Download Flow
 
 The message protocol does **not** expose OCR percentage/progress.

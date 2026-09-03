@@ -2242,3 +2242,44 @@ All open questions from the initial design have been resolved. The final decisio
 - RunOCR now operates directly on the Page domain model.
 - OCR records remain associated with the existing OCR storage compatibility model (e.g., using captureId).
 - OCR is triggered asynchronously after screenshot persistence.
+
+---
+
+## ARCHITECTURE UPDATE: Selectable OCR Text in Image Preview / Lightbox
+
+### 1. Dual Consumers of OCR Data
+OCR word-level positional information is now utilized by two primary consumer subsystems:
+1. **PDF Generation**: Injects an invisible, searchable font text layer into generated PDF pages via `PdfLibPDFService`.
+2. **React UI Lightbox Preview**: Overlays a pixel-accurate, selectable text layer directly on the rendered screenshot in `LightboxPreview.tsx` via `OCRTextOverlay.tsx`.
+
+### 2. Tesseract.js Output & Word Extraction
+In Tesseract.js v5+/v7, calling `worker.recognize(dataUrl)` defaults to plain text output only unless `{ blocks: true }` is explicitly provided. Moreover, word objects are nested hierarchically within the AST:
+```text
+result.data.blocks[]
+  └── paragraphs[]
+        └── lines[]
+              └── words[] (text, confidence, bbox { x0, y0, x1, y1 })
+```
+`TesseractWorker.ts` explicitly invokes `worker.recognize(dataUrl, {}, { blocks: true, text: true })` and traverses the block hierarchy to extract every recognized word into normalized bounding boxes.
+
+### 3. Coordinate Transformation & Alignment Contract
+To align the selectable text layer over the dynamically sized `<img>` element in the lightbox:
+- `LightboxPreview` measures the visible image bounds via `getBoundingClientRect()` relative to its wrapper container.
+- `ResizeObserver` recalculates the rendered dimensions on image load, window resize, and layout changes.
+- `OCRTextOverlay` computes scaling ratios:
+  $$\text{scaleX} = \frac{\text{renderedRect.width}}{\text{imageWidth}}, \quad \text{scaleY} = \frac{\text{renderedRect.height}}{\text{imageHeight}}$$
+- Word spans are placed at:
+  $$\text{left} = \text{box.x} \times \text{scaleX}, \quad \text{top} = \text{box.y} \times \text{scaleY}$$
+  $$\text{width} = \text{box.width} \times \text{scaleX}, \quad \text{height} = \text{box.height} \times \text{scaleY}$$
+- Words are styled with `color: transparent` and native selection highlighting (`.wsn-ocr-word::selection { background: rgba(59, 130, 246, 0.45); color: transparent; }`).
+
+### 4. Version Matching Contract
+- When an image is edited in the Page Editor, its visual display updates to `page.renderedImageId`.
+- The OCR text overlay is **only** displayed when `OCRResult.status === COMPLETED` and `OCRResult.processedImageId === page.effectiveRenderedImageId` (or unversioned legacy records).
+- If the page has been edited and fresh OCR is pending, the previous OCR overlay is automatically hidden to prevent misaligned selections.
+
+### 5. Auto-Healing Protocol (`GET_PAGE_OCR`)
+When `LightboxPreview` requests OCR data via `GET_PAGE_OCR`:
+- If the page exists but its OCR result is missing or contains an empty words array (`words.length === 0`), the service worker automatically triggers `runOCR.execute({ page, image: imageAsset })` in the background.
+- Upon completion, the service worker broadcasts `OCR_COMPLETED`, prompting the lightbox to reload and display the newly extracted selectable overlay immediately.
+

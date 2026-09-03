@@ -43,16 +43,22 @@ export class TesseractOCRAdapter implements OCRService {
       }
 
       // === DIAGNOSTIC STEP 3: Map results ===
-      const mappedWords: OCRWord[] = (response.words || []).map((w: any) => ({
-        text: w.text || '',
-        confidence: w.confidence || 0,
-        boundingBox: {
-          x: w.bbox?.x0 || 0,
-          y: w.bbox?.y0 || 0,
-          width: (w.bbox?.x1 || 0) - (w.bbox?.x0 || 0),
-          height: (w.bbox?.y1 || 0) - (w.bbox?.y0 || 0)
-        }
-      }));
+      const mappedWords: OCRWord[] = (response.words || []).map((w: any) => {
+        const x = typeof w.boundingBox?.x === 'number' ? w.boundingBox.x : (w.bbox?.x0 || 0);
+        const y = typeof w.boundingBox?.y === 'number' ? w.boundingBox.y : (w.bbox?.y0 || 0);
+        const width = typeof w.boundingBox?.width === 'number'
+          ? w.boundingBox.width
+          : Math.max(0, (w.bbox?.x1 || 0) - (w.bbox?.x0 || 0));
+        const height = typeof w.boundingBox?.height === 'number'
+          ? w.boundingBox.height
+          : Math.max(0, (w.bbox?.y1 || 0) - (w.bbox?.y0 || 0));
+
+        return {
+          text: w.text || '',
+          confidence: w.confidence || 0,
+          boundingBox: { x, y, width, height }
+        };
+      });
 
       console.log(
         `[TesseractOCRAdapter] OCR complete in ${Date.now() - startTime}ms. ` +
