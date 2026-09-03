@@ -70,4 +70,11 @@ assert(swCode.includes('getStoredActivation'), 'Service Worker must implement ge
 assert(swCode.includes('chrome.storage.local.set({ isActivatedGlobally })'), 'Service Worker must save activation to storage');
 console.log('✓ Test 5: Service Worker activation persistence verified - PASS');
 
+// ─── Test 6: Verify PageEditor has image tool enabled in UIOptions ───
+const editorPath = path.resolve('src/features/page-editor/components/PageEditor.tsx');
+const editorCode = fs.readFileSync(editorPath, 'utf8');
+assert(editorCode.includes('image: true'), 'PageEditor must enable image tool in UIOptions');
+assert(!editorCode.includes('[data-testid="toolbar-image"]'), 'PageEditor must not hide image tool in CSS');
+console.log('✓ Test 6: PageEditor enables image tool in UIOptions and toolbar - PASS');
+
 console.log('\nAll PageEditor Close Resilience & Error Boundary tests PASSED successfully!');

@@ -366,14 +366,6 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
           .wsn-editor-modal .excalidraw .sidebar-trigger {
             display: none !important;
           }
-          .wsn-editor-modal .excalidraw [data-testid="toolbar-image"],
-          .wsn-editor-modal .excalidraw label[title*="Image"],
-          .wsn-editor-modal .excalidraw button[title*="Image"],
-          .wsn-editor-modal .excalidraw label[aria-label*="Image"],
-          .wsn-editor-modal .excalidraw label[data-id="image"],
-          .wsn-editor-modal .excalidraw label:has(input[value="image"]) {
-            display: none !important;
-          }
           .wsn-editor-modal .excalidraw .help-icon,
           .wsn-editor-modal .excalidraw button[aria-label*="Help"],
           .wsn-editor-modal .excalidraw button[title*="Help"],
@@ -485,7 +477,7 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
               handleKeyboardGlobally={false}
               UIOptions={{
                 tools: {
-                  image: false,
+                  image: true,
                 },
               }}
             />
