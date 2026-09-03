@@ -239,6 +239,15 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
   }, [pageId, messageBus]);
 
   const handleClose = useCallback(() => {
+    // Proactively commit any in-flight text editing by blurring active element before unmounting
+    try {
+      if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    } catch {
+      // ignore
+    }
+
     flushPendingSave();
     onClose();
   }, [flushPendingSave, onClose]);
@@ -473,9 +482,10 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
               initialData={initialData}
               excalidrawAPI={handleExcalidrawAPI}
               onChange={handleChange}
+              handleKeyboardGlobally={false}
               UIOptions={{
                 tools: {
-                  image: true,
+                  image: false,
                 },
               }}
             />

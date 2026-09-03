@@ -31,12 +31,25 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './app/App.tsx';
+import { ErrorBoundary } from './shared/components/ErrorBoundary.tsx';
 import { ChromeMessageBus } from './infrastructure/messaging/ChromeMessageBus.ts';
 import { MessageBusProvider } from './app/providers/MessageBusContext.tsx';
 
 // Import ONLY the Snabby content UI CSS (ported from original getStyles())
 import appCss from './app/App.css?inline';
 import excalidrawCss from '@excalidraw/excalidraw/index.css?inline';
+
+// Global suppression of benign unhandled rejections/errors from embedded editor libraries
+// (e.g. host-page paste attempts or detached DOMException blur operations)
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const msg = String(reason?.message || reason || '');
+    if (msg.includes('excalidraw') || msg.includes('clipboard') || msg.includes('DOMException')) {
+      event.preventDefault();
+    }
+  });
+}
 
 if (!document.getElementById('wsn-root')) {
   const host = document.createElement('div');
@@ -89,9 +102,11 @@ if (!document.getElementById('wsn-root')) {
 
   createRoot(container).render(
     <StrictMode>
-      <MessageBusProvider bus={bus}>
-        <App />
-      </MessageBusProvider>
+      <ErrorBoundary name="Root">
+        <MessageBusProvider bus={bus}>
+          <App />
+        </MessageBusProvider>
+      </ErrorBoundary>
     </StrictMode>
   );
 }

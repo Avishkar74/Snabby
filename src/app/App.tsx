@@ -8,6 +8,7 @@ import { NewSessionView } from '../features/session/components/NewSessionView.ts
 import { ActiveSessionView } from '../features/session/components/ActiveSessionView.tsx';
 import { LightboxPreview } from '../features/capture/components/LightboxPreview.tsx';
 import { PageEditor } from '../features/page-editor/index.ts';
+import { ErrorBoundary } from '../shared/components/ErrorBoundary.tsx';
 import { FloatingMascot } from '../features/capture/components/FloatingMascot.tsx';
 import { useMessageBus } from './providers/MessageBusContext.tsx';
 
@@ -108,7 +109,8 @@ export const App: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const isActivated = manualActivated;
+  // Activated if manually toggled or if an active session exists
+  const isActivated = manualActivated || session !== null;
 
   // Synchronize manual activation state from global active state
   useEffect(() => {
@@ -351,11 +353,13 @@ export const App: React.FC = () => {
         onClose={handleCloseLightbox}
       />
 
-      {/* Page Editor overlay */}
-      <PageEditor
-        pageId={editingPageId}
-        onClose={() => setEditingPageId(null)}
-      />
+      {/* Page Editor overlay wrapped in ErrorBoundary to contain any unmount/editor errors */}
+      <ErrorBoundary name="PageEditor" fallback={null}>
+        <PageEditor
+          pageId={editingPageId}
+          onClose={() => setEditingPageId(null)}
+        />
+      </ErrorBoundary>
 
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />

@@ -793,6 +793,18 @@ Application Error
 UI-friendly Error Message
 ```
 
+### UI Runtime Resilience & Extension Error Isolation
+
+* **React Error Boundaries**:
+  * The root UI (`#wsn-react-root`) and complex embedded modules (e.g. `PageEditor`) must be isolated within dedicated `ErrorBoundary` components.
+  * Runtime or lifecycle unmount exceptions within child components must never crash or unmount the floating mascot or active side panel.
+* **Persistent Service Worker Activation**:
+  * Global extension activation (`isActivatedGlobally`) must be stored in `chrome.storage.local` to survive Manifest V3 service worker cold start / idle termination cycles.
+  * An active session (`session !== null`) must always preserve UI visibility.
+* **Content Script Host-Page Isolation**:
+  * Embedded third-party canvas libraries (e.g. Excalidraw) must not bind global `document` event listeners for `paste`, `copy`, or `cut`, preventing host page collisions (e.g. Google Forms, GitHub).
+  * Benign user cancellations or permissions errors (such as `AbortError` on file pickers) must be handled gracefully with `console.warn` rather than `console.error`, avoiding noisy Chrome extension error logs.
+
 ---
 
 # 28. No Backend Dependency for Core Workflow

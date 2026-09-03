@@ -63,6 +63,23 @@ export const createScreenshotPage = new CreateScreenshotPage(
   runOCR
 );
 
+let isActivatedGlobally = false;
+
+async function getStoredActivation(): Promise<boolean> {
+  try {
+    const res = (await chrome.storage.local.get(['isActivatedGlobally'])) as Record<string, any>;
+    if (typeof res?.isActivatedGlobally === 'boolean') {
+      isActivatedGlobally = res.isActivatedGlobally;
+    }
+    return isActivatedGlobally;
+  } catch {
+    return isActivatedGlobally;
+  }
+}
+
+// Warm up activation state on SW startup
+getStoredActivation().catch(() => {});
+
 let creatingOffscreenPromise: Promise<void> | null = null;
 
 async function ensureOffscreenDocument(): Promise<void> {
@@ -370,12 +387,14 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
         case 'GET_SESSION': {
           const sessions = await sessionRepo.findAll();
           const settings = await getSettings();
+          const activeState = await getStoredActivation();
+
           return {
             success: true,
             data: {
               session: sessions[0] || null,
               settings,
-              isActivatedGlobally
+              isActivatedGlobally: activeState
             }
           };
         }
@@ -836,7 +855,6 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
 
 // Active tab activation state tracking (tabId -> boolean)
 const activatedTabs = new Map<number, boolean>();
-let isActivatedGlobally = false;
 
 function isSystemPage(url?: string): boolean {
   if (!url) return false;
@@ -858,7 +876,10 @@ chrome.action.onClicked.addListener(async (tab) => {
     return;
   }
 
-  isActivatedGlobally = !isActivatedGlobally;
+  // Read latest stored state to avoid stale memory after SW wake
+  const currentActive = await getStoredActivation();
+  isActivatedGlobally = !currentActive;
+  await chrome.storage.local.set({ isActivatedGlobally }).catch(() => {});
 
   if (isActivatedGlobally) {
     const currentTabInjected = activatedTabs.get(tab.id) || false;

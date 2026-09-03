@@ -68,6 +68,25 @@ async function runBuild() {
     content = content.replace(/addEventListener\(\s*[`'"]unload[`'"]/g, 'addEventListener("pagehide"');
     content = content.replace(/removeEventListener\(\s*[`'"]unload[`'"]/g, 'removeEventListener("pagehide"');
 
+    // Retarget Excalidraw global document clipboard listeners (paste, cut, copy) to container
+    // This prevents Excalidraw from intercepting user clipboard events on host pages (e.g. Google Forms, GitHub)
+    content = content.replace(/Wl\(document,([`'"]paste[`'"],this\.pasteFromClipboard)/g, 'Wl(this.excalidrawContainerRef?.current||document,$1');
+    content = content.replace(/Wl\(document,([`'"]cut[`'"],this\.onCut)/g, 'Wl(this.excalidrawContainerRef?.current||document,$1');
+    content = content.replace(/Wl\(document,([`'"]copy[`'"],this\.onCopy)/g, 'Wl(this.excalidrawContainerRef?.current||document,$1');
+
+    // Guard textEditor focus & selection operations against DOMExceptions on detached elements during unmount/close
+    content = content.replace(/n\|\|f\.focus\(\)/g, 'n||(f.isConnected?f.focus():null)');
+    content = content.replace(/n\.removeAllRanges\(\)/g, '(function(){try{n.removeAllRanges()}catch{}})()');
+
+    // Defend clipboard parsing (Tue & Eue) so unexpected clipboard payloads never throw uncaught errors
+    content = content.replace(/n\.value\.every\(([^)]*)\)\?/g, '(Array.isArray(n.value)&&n.value.every($1))?');
+    content = content.replace(/Eue=async\(([^)]*)\)=>\{let n=await Tue\(e,t\);/g, 'Eue=async($1)=>{let n;try{n=await Tue(e,t);}catch{return{type:"text",value:""}}');
+
+    // Replace file picker AbortError/DOMException error logging with console.warn
+    // Chrome extension runtime records console.error() as a fatal extension error in chrome://extensions.
+    // User cancellations or permissions rejections on showOpenFilePicker/showSaveFilePicker should not be fatal errors.
+    content = content.replace(/e\??\.name===[`'"]AbortError[`'"]\?console\.warn\(e\):console\.error\(e\)/g, 'console.warn(e)');
+
     const sanitizedContent = content.replace(/[\u0080-\uFFFF]/g, (c) => {
       return '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0');
     });
