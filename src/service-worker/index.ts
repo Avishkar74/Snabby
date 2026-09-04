@@ -21,9 +21,7 @@ import { SavePageAnnotations } from '../application/page/SavePageAnnotations.ts'
 import { RunOCR } from '../application/ocr/RunOCR.ts';
 import { GeneratePDF } from '../application/pdf/GeneratePDF.ts';
 import { DownloadPDF } from '../application/pdf/DownloadPDF.ts';
-import { OCRStatus, type OCRWord } from '../domain/ocr/ocr.types.ts';
-import { OCRResult } from '../domain/ocr/OCRResult.ts';
-import { PageType } from '../domain/page/page.types.ts';
+import { OCRStatus } from '../domain/ocr/ocr.types.ts';
 
 console.log('[Service Worker] Initializing Snabby service worker...');
 
@@ -140,23 +138,43 @@ runOCR.execute = async (input) => {
   try {
     await ensureOffscreenDocument();
     const result = await originalRunOcrExecute(input);
-    console.log(`[Service Worker] OCR completed for page ${input.page.id}`);
-    broadcastMessage({
-      type: 'OCR_COMPLETED',
-      captureId: input.page.id
-    });
+    const targetPage = input.page || (input as any).capture;
+    const pageId = targetPage ? targetPage.id : undefined;
+
+    // Check if result is still fresh for the page before broadcasting OCR_COMPLETED
+    if (pageId && result.status === OCRStatus.COMPLETED) {
+      const latestPage = await pageRepo.findById(pageId);
+      const currentEffectiveId =
+        latestPage?.effectiveRenderedImageId ?? (latestPage as any)?.renderedImageId ?? latestPage?.imageId;
+      if (currentEffectiveId && currentEffectiveId === input.image.id) {
+        console.log(`[Service Worker] OCR completed for page ${pageId} (image ${input.image.id})`);
+        broadcastMessage({
+          type: 'OCR_COMPLETED',
+          pageId,
+          captureId: pageId,
+        });
+      } else {
+        console.log(
+          `[Service Worker] Suppressed OCR_COMPLETED broadcast for superseded image ${input.image.id} on page ${pageId}`
+        );
+      }
+    }
     return result;
   } catch (err: any) {
-    console.warn(`[Service Worker] OCR failed for page ${input.page.id}:`, err);
-    broadcastMessage({
-      type: 'OCR_FAILED',
-      captureId: input.page.id,
-      error: {
-        code: 'OCR_FAILED',
-        message: err.message || String(err),
-        operation: 'OCR'
-      }
-    });
+    const targetPage = input.page || (input as any).capture;
+    const pageId = targetPage ? targetPage.id : undefined;
+    console.warn(`[Service Worker] OCR failed for page ${pageId}:`, err);
+    if (pageId) {
+      broadcastMessage({
+        type: 'OCR_FAILED',
+        captureId: pageId,
+        error: {
+          code: 'OCR_FAILED',
+          message: err.message || String(err),
+          operation: 'OCR',
+        },
+      });
+    }
     throw err;
   }
 };
@@ -388,50 +406,6 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
-function extractExcalidrawWords(annotationData: string | null | undefined): OCRWord[] {
-  if (!annotationData) return [];
-  try {
-    const elements = JSON.parse(annotationData);
-    if (!Array.isArray(elements)) return [];
-    const textElements = elements.filter(
-      (el: any) => el && el.type === 'text' && !el.isDeleted && typeof el.text === 'string' && el.text.trim()
-    );
-    const words: OCRWord[] = [];
-    for (const el of textElements) {
-      const lines = String(el.text).split('\n');
-      const lineHeight = el.lineHeight || (el.height / Math.max(1, lines.length));
-      let currentY = el.y;
-      for (const lineText of lines) {
-        const lineWords = lineText.trim().split(/\s+/).filter(Boolean);
-        if (lineWords.length > 0) {
-          const totalChars = Math.max(1, lineText.length);
-          const charWidth = el.width / totalChars;
-          let currentX = el.x;
-          for (const w of lineWords) {
-            const wLen = w.length;
-            const wWidth = Math.max(8, wLen * charWidth);
-            words.push({
-              text: w,
-              confidence: 100,
-              boundingBox: {
-                x: Math.round(currentX),
-                y: Math.round(currentY),
-                width: Math.round(wWidth),
-                height: Math.round(lineHeight),
-              },
-            });
-            currentX += (wLen + 1) * charWidth;
-          }
-        }
-        currentY += lineHeight;
-      }
-    }
-    return words;
-  } catch {
-    return [];
-  }
-}
-
 // Message Router for React UI Commands
 chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
   // Ignore messages from offscreen targeted specifically for offscreen
@@ -543,10 +517,14 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               const ocrResult = await ocrRepo.findByCaptureId(p.id);
 
               let status: string = OCRStatus.NOT_STARTED;
-              if (ocrResult) {
-                status = ocrResult.status;
-              } else if (p.status === 'PROCESSING') {
+              const isFresh =
+                ocrResult &&
+                (ocrResult.processedImageId === p.effectiveRenderedImageId ||
+                  (!ocrResult.processedImageId && p.effectiveRenderedImageId === p.imageId));
+              if (p.status === 'PROCESSING') {
                 status = OCRStatus.PROCESSING;
+              } else if (isFresh) {
+                status = ocrResult.status;
               } else if (p.status === 'FAILED') {
                 status = OCRStatus.FAILED;
               }
@@ -570,6 +548,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
                 id: p.id,
                 sessionId: p.sessionId,
                 imageId: p.imageId,
+                effectiveRenderedImageId: p.effectiveRenderedImageId,
                 status,
                 order: p.order,
                 createdAt: p.createdAt,
@@ -630,48 +609,26 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             message.renderedImageData as any,
             message.files as any
           );
-          if (success && message.renderedImageData) {
+          if (success) {
             broadcastMessage({ type: 'SESSION_UPDATED' });
 
-            // Preserve clean screenshot OCR words, incorporate new Excalidraw vector text,
-            // and associate with the newly rendered image ID without lossy re-scanning.
-            (async () => {
-              try {
-                const page = await pageRepo.findById(message.pageId as any);
-                if (page && page.effectiveRenderedImageId) {
-                  const existingOcr = await ocrRepo.findByCaptureId(page.id);
-                  if (existingOcr && existingOcr.words && existingOcr.words.length > 0) {
-                    const excalidrawWords = extractExcalidrawWords(message.annotationData);
-                    const combinedWords = [...existingOcr.words, ...excalidrawWords];
-                    const fullText = existingOcr.fullText +
-                      (excalidrawWords.length > 0 ? ' ' + excalidrawWords.map(w => w.text).join(' ') : '');
-
-                    const updatedOcr = new OCRResult({
-                      captureId: page.id,
-                      status: OCRStatus.COMPLETED,
-                      fullText,
-                      words: combinedWords,
-                      imageWidth: existingOcr.imageWidth,
-                      imageHeight: existingOcr.imageHeight,
-                      processedImageId: page.effectiveRenderedImageId,
-                    });
-                    await ocrRepo.save(updatedOcr);
-                    broadcastMessage({
-                      type: 'OCR_COMPLETED',
-                      pageId: page.id,
-                      captureId: page.id,
-                    });
-                  } else {
+            if (message.renderedImageData) {
+              // Asynchronously execute OCR on the exact newly rendered composited ImageAsset.
+              // This is strictly non-blocking: save returns immediately to the editor.
+              (async () => {
+                try {
+                  const page = await pageRepo.findById(message.pageId as any);
+                  if (page && page.effectiveRenderedImageId) {
                     const imageAsset = await imageRepo.findById(page.effectiveRenderedImageId as any);
                     if (imageAsset) {
                       await runOCR.execute({ page, image: imageAsset });
                     }
                   }
+                } catch (ocrErr) {
+                  console.warn('[Service Worker] Async OCR execution failed on edited page:', ocrErr);
                 }
-              } catch (ocrErr) {
-                console.warn('[Service Worker] Async OCR execution failed on edited page:', ocrErr);
-              }
-            })();
+              })();
+            }
           }
           return { success };
         }
@@ -718,10 +675,13 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
               continue;
             }
 
-            // Page OCR is complete for the current visual version if result exists and processedImageId matches (or legacy unversioned result)
-            if (
+            // Page OCR is complete for the current visual version if result exists and processedImageId matches (or legacy unversioned result on unedited screenshot)
+            const isFresh =
               ocr &&
-              (ocr.processedImageId === page.effectiveRenderedImageId || !ocr.processedImageId) &&
+              (ocr.processedImageId === page.effectiveRenderedImageId ||
+                (!ocr.processedImageId && page.effectiveRenderedImageId === page.imageId));
+            if (
+              isFresh &&
               (ocr.status === OCRStatus.COMPLETED || ocr.status === OCRStatus.FAILED)
             ) {
               completedOrFailedCount++;
@@ -741,33 +701,39 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             return { success: true, data: { ocrResult: null, currentRenderedImageId: null } };
           }
           const ocr = await ocrRepo.findByCaptureId(page.id);
+          const effectiveImageId = page.effectiveRenderedImageId;
+          const isFresh =
+            ocr &&
+            (ocr.processedImageId === effectiveImageId ||
+              (!ocr.processedImageId && effectiveImageId === page.imageId));
 
-          // Auto-heal: If page exists and OCR is missing or completed with empty words,
-          // trigger RunOCR to compute words and bounding boxes in the background
-          if (
-            (!ocr || (ocr.status === OCRStatus.COMPLETED && (!ocr.words || ocr.words.length === 0))) &&
-            page.type === PageType.SCREENSHOT
-          ) {
-            const imageAsset = await imageRepo.findById(page.effectiveRenderedImageId);
-            if (imageAsset) {
-              console.log(`[Service Worker] Auto-healing OCR words for page ${page.id}...`);
-              runOCR.execute({ page, image: imageAsset }).catch((err) => {
+          // Auto-heal: If page exists and OCR is missing or stale, trigger single-flight RunOCR
+          // strictly asynchronously in the background and respond immediately without awaiting.
+          if ((!ocr || !isFresh) && effectiveImageId) {
+            (async () => {
+              try {
+                const imageAsset = await imageRepo.findById(effectiveImageId);
+                if (imageAsset) {
+                  console.log(`[Service Worker] Auto-healing OCR for page ${page.id} (image: ${effectiveImageId})...`);
+                  await runOCR.execute({ page, image: imageAsset });
+                }
+              } catch (err) {
                 console.warn('[Service Worker] Auto-healing OCR failed:', err);
-              });
-            }
+              }
+            })();
           }
 
-          if (!ocr) {
+          if (!ocr || !isFresh) {
             return {
               success: true,
-              data: { ocrResult: null, currentRenderedImageId: page.effectiveRenderedImageId }
+              data: { ocrResult: null, currentRenderedImageId: effectiveImageId }
             };
           }
 
           let width = ocr.imageWidth;
           let height = ocr.imageHeight;
           if (width <= 0 || height <= 0) {
-            const imageAsset = await imageRepo.findById(page.effectiveRenderedImageId);
+            const imageAsset = await imageRepo.findById(effectiveImageId);
             if (imageAsset) {
               width = imageAsset.width;
               height = imageAsset.height;
@@ -787,7 +753,7 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
                 processedImageId: ocr.processedImageId,
                 errorDetails: ocr.errorDetails,
               },
-              currentRenderedImageId: page.effectiveRenderedImageId
+              currentRenderedImageId: effectiveImageId
             }
           };
         }

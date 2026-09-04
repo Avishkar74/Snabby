@@ -33,12 +33,14 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
 }) => {
   const messageBus = useMessageBus();
   const [ocrData, setOcrData] = useState<OCRResultData | null>(null);
+  const [currentRenderedImageId, setCurrentRenderedImageId] = useState<string | null>(null);
   const [renderedRect, setRenderedRect] = useState<RenderedImageRect | null>(null);
 
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const currentIndex = capture ? captures.findIndex((c) => c.id === capture.id) : -1;
+  const currentCapture = (currentIndex >= 0 ? captures[currentIndex] : null) ?? capture;
 
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
@@ -53,10 +55,10 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
   }, [currentIndex, captures, onSelectCapture]);
 
   const handleEdit = useCallback(() => {
-    if (!capture || !onEditPage) return;
+    if (!currentCapture || !onEditPage) return;
     onClose();
-    onEditPage(capture.id);
-  }, [capture, onClose, onEditPage]);
+    onEditPage(currentCapture.id);
+  }, [currentCapture, onClose, onEditPage]);
 
   // Fetch OCR result for the current page
   const fetchOcr = useCallback(async (pageId: string) => {
@@ -74,17 +76,20 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
 
       if (res && res.success && res.data) {
         setOcrData(res.data.ocrResult || null);
+        setCurrentRenderedImageId(res.data.currentRenderedImageId || null);
       } else {
         setOcrData(null);
+        setCurrentRenderedImageId(null);
       }
     } catch {
       setOcrData(null);
+      setCurrentRenderedImageId(null);
     }
   }, [messageBus]);
 
   // Listen to keyboard shortcuts (Escape, ArrowLeft, ArrowRight)
   useEffect(() => {
-    if (!isOpen || !capture) return;
+    if (!isOpen || !currentCapture) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -103,28 +108,34 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, capture, handlePrev, handleNext, handleEdit, onClose]);
+  }, [isOpen, currentCapture, handlePrev, handleNext, handleEdit, onClose]);
 
-  // Query OCR on open / page change, and react to OCR_COMPLETED broadcast
+  // Query OCR on open / page change, and react to OCR_COMPLETED and SESSION_UPDATED broadcasts
   useEffect(() => {
-    if (!isOpen || !capture) {
+    if (!isOpen || !currentCapture) {
       setOcrData(null);
+      setCurrentRenderedImageId(null);
       setRenderedRect(null);
       return;
     }
 
-    fetchOcr(capture.id);
+    fetchOcr(currentCapture.id);
 
     const unsubOcrCompleted = messageBus.listen('OCR_COMPLETED', (payload: any) => {
-      if (!payload || payload.pageId === capture.id || payload.captureId === capture.id) {
-        fetchOcr(capture.id);
+      if (!payload || payload.pageId === currentCapture.id || payload.captureId === currentCapture.id) {
+        fetchOcr(currentCapture.id);
       }
+    });
+
+    const unsubSessionUpdated = messageBus.listen('SESSION_UPDATED', () => {
+      fetchOcr(currentCapture.id);
     });
 
     return () => {
       unsubOcrCompleted();
+      unsubSessionUpdated();
     };
-  }, [isOpen, capture?.id, fetchOcr, messageBus]);
+  }, [isOpen, currentCapture?.id, fetchOcr, messageBus]);
 
   // Exact measurement of the visible rendered <img> element via getBoundingClientRect()
   const updateRenderedRect = useCallback(() => {
@@ -171,20 +182,27 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
       if (observer) observer.disconnect();
       window.removeEventListener('resize', updateRenderedRect);
     };
-  }, [isOpen, capture?.imageUrl, updateRenderedRect]);
+  }, [isOpen, currentCapture?.imageUrl, updateRenderedRect]);
 
-  if (!isOpen || !capture) {
+  if (!isOpen || !currentCapture) {
     return null;
   }
 
-  // Display OCR overlay when status is COMPLETED and words are present.
+  // Display OCR overlay only when status is COMPLETED, words are present,
+  // and OCR belongs to the currently displayed rendered image.
+  const activeRenderedImageId = currentRenderedImageId || currentCapture.effectiveRenderedImageId;
   const isMatchingOcr =
     ocrData !== null &&
     ocrData.status === 'COMPLETED' &&
     Array.isArray(ocrData.words) &&
     ocrData.words.length > 0 &&
     ocrData.imageWidth > 0 &&
-    ocrData.imageHeight > 0;
+    ocrData.imageHeight > 0 &&
+    (
+      ocrData.processedImageId && activeRenderedImageId
+        ? ocrData.processedImageId === activeRenderedImageId
+        : (!activeRenderedImageId || activeRenderedImageId === currentCapture.imageId)
+    );
 
   return (
     <div className="wsn-lightbox" role="dialog" aria-modal="true">
@@ -230,7 +248,7 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
             </button>
           </div>
         </div>
-        {capture.imageUrl ? (
+        {currentCapture.imageUrl ? (
           <div
             ref={containerRef}
             className="wsn-lightbox-img-wrapper"
@@ -246,7 +264,7 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
             <img
               ref={imgRef}
               className="wsn-lightbox-img"
-              src={capture.imageUrl}
+              src={currentCapture.imageUrl}
               alt={`Capture #${currentIndex + 1}`}
               draggable={false}
               onLoad={updateRenderedRect}

@@ -289,8 +289,10 @@ async function runTests() {
       captureMode: 'FULL_SCREEN'
     });
 
-    // Wait a brief moment to allow asynchronous background RunOCR execution to complete/fail
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    // Wait dynamically for asynchronous background RunOCR execution to complete/fail
+    for (let i = 0; i < 30 && !mockIndexedDBData.get('ocrResults')?.get(result.capture.id); i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
 
     // Verify Capture and Image exist in DB
     const captureInDb = mockIndexedDBData.get('captures')?.get(result.capture.id);

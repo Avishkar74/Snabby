@@ -129,6 +129,16 @@ export const App: React.FC = () => {
     }
   }, [panelOpen]);
 
+  // Synchronize selectedCapture with captures array if captures updates (e.g. after edit or save)
+  useEffect(() => {
+    if (selectedCapture) {
+      const fresh = captures.find((c) => c.id === selectedCapture.id);
+      if (fresh && fresh !== selectedCapture) {
+        setSelectedCapture(fresh);
+      }
+    }
+  }, [captures, selectedCapture]);
+
 
   // Panel ref for display/opacity control matching original openPanel/closePanel
   const panelRef = useRef<HTMLDivElement>(null);

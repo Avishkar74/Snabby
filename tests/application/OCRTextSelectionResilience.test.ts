@@ -87,20 +87,19 @@ assert.strictEqual(line2Text, 'simple as that.', 'Line 2 words must be in strict
 
 console.log('✓ Test 2: Sentence ordering with varying font heights and punctuation verified - PASS');
 
-// ─── Test 3: Verify service-worker SAVE_PAGE_ANNOTATIONS retains clean screenshot OCR ───
+// ─── Test 3: Verify service-worker SAVE_PAGE_ANNOTATIONS executes OCR on effectiveRenderedImageId ───
 const swPath = path.resolve('src/service-worker/index.ts');
 const swCode = fs.readFileSync(swPath, 'utf8');
 
-assert(swCode.includes('extractExcalidrawWords'), 'service worker must define extractExcalidrawWords');
-assert(swCode.includes('const existingOcr = await ocrRepo.findByCaptureId(page.id);'), 'service worker must query existing OCR to preserve base words');
-assert(swCode.includes('const combinedWords = [...existingOcr.words, ...excalidrawWords];'), 'service worker must combine existing OCR words with vector text');
-console.log('✓ Test 3: Service Worker OCR preservation on annotation save verified - PASS');
+assert(swCode.includes('runOCR.execute({ page, image: imageAsset })'), 'service worker must run OCR on the newly rendered ImageAsset');
+assert(!swCode.includes('extractExcalidrawWords'), 'service worker must not use extractExcalidrawWords bypass');
+console.log('✓ Test 3: Service Worker composited rendered image OCR execution verified - PASS');
 
-// ─── Test 4: Verify LightboxPreview allows continuous OCR display ───
+// ─── Test 4: Verify LightboxPreview validates OCR freshness against activeRenderedImageId ───
 const lightboxPath = path.resolve('src/features/capture/components/LightboxPreview.tsx');
 const lightboxCode = fs.readFileSync(lightboxPath, 'utf8');
 
-assert(!lightboxCode.includes('(!ocrData.processedImageId || ocrData.processedImageId === currentRenderedImageId)'), 'LightboxPreview must not hide overlay when processedImageId is pending');
-console.log('✓ Test 4: LightboxPreview continuous OCR display verified - PASS');
+assert(lightboxCode.includes('activeRenderedImageId'), 'LightboxPreview must validate OCR against active rendered image ID');
+console.log('✓ Test 4: LightboxPreview OCR freshness validation verified - PASS');
 
 console.log('All OCR Text Selection & Line Clustering resilience tests PASSED successfully!');

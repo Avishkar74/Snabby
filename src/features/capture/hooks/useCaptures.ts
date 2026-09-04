@@ -5,6 +5,7 @@ export interface PagePreview {
   id: string;
   sessionId: string;
   imageId: string;
+  effectiveRenderedImageId?: string;
   status: string; // OCRStatus: NOT_STARTED | PROCESSING | COMPLETED | FAILED
   order: number;
   createdAt: string;
