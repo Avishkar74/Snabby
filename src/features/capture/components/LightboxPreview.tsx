@@ -10,6 +10,7 @@ interface LightboxPreviewProps {
   captures: PagePreview[];
   onSelectCapture: (capture: PagePreview) => void;
   onClose: () => void;
+  onEditPage?: (pageId: string) => void;
 }
 
 interface OCRResultData {
@@ -28,6 +29,7 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
   captures,
   onSelectCapture,
   onClose,
+  onEditPage,
 }) => {
   const messageBus = useMessageBus();
   const [ocrData, setOcrData] = useState<OCRResultData | null>(null);
@@ -49,6 +51,12 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
       onSelectCapture(captures[currentIndex + 1]);
     }
   }, [currentIndex, captures, onSelectCapture]);
+
+  const handleEdit = useCallback(() => {
+    if (!capture || !onEditPage) return;
+    onClose();
+    onEditPage(capture.id);
+  }, [capture, onClose, onEditPage]);
 
   // Fetch OCR result for the current page
   const fetchOcr = useCallback(async (pageId: string) => {
@@ -86,6 +94,8 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
         handlePrev();
       } else if (e.key === 'ArrowRight') {
         handleNext();
+      } else if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        handleEdit();
       }
     };
 
@@ -93,7 +103,7 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, capture, handlePrev, handleNext, onClose]);
+  }, [isOpen, capture, handlePrev, handleNext, handleEdit, onClose]);
 
   // Query OCR on open / page change, and react to OCR_COMPLETED broadcast
   useEffect(() => {
@@ -180,14 +190,46 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
     <div className="wsn-lightbox" role="dialog" aria-modal="true">
       <div className="wsn-lightbox-backdrop" onClick={onClose}></div>
       <div className="wsn-lightbox-dialog" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="wsn-lightbox-close"
-          aria-label="Close preview"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <div className="wsn-lightbox-header">
+          <div className="wsn-lightbox-header-title">
+            Capture #{currentIndex + 1}{captures.length > 1 ? ` of ${captures.length}` : ''}
+          </div>
+          <div className="wsn-lightbox-controls">
+            {onEditPage && (
+              <button
+                type="button"
+                className="wsn-lightbox-edit-btn wsn-lightbox-edit"
+                aria-label="Edit page"
+                title="Edit page"
+                onClick={handleEdit}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                <span>Edit</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="wsn-lightbox-close-btn wsn-lightbox-close"
+              aria-label="Close preview"
+              title="Close preview"
+              onClick={onClose}
+            >
+              ×
+            </button>
+          </div>
+        </div>
         {capture.imageUrl ? (
           <div
             ref={containerRef}
@@ -230,9 +272,6 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
         ) : (
           <div style={{ color: 'white' }}>No Image Data</div>
         )}
-        <div className="wsn-lightbox-caption">
-          #{currentIndex + 1} · Capture #{currentIndex + 1}
-        </div>
         {captures.length > 1 && (
           <>
             <button

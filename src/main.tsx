@@ -51,7 +51,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-if (!document.getElementById('wsn-root')) {
+if (typeof chrome !== 'undefined' && chrome.runtime?.id && !document.getElementById('wsn-root')) {
   const host = document.createElement('div');
   host.id = 'wsn-root';
   host.style.cssText = 'all:initial; position:fixed; z-index:2147483647; top:0; left:0; width:0; height:0; pointer-events:none;';

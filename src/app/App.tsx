@@ -351,6 +351,7 @@ export const App: React.FC = () => {
         captures={captures}
         onSelectCapture={handleSelectCapture}
         onClose={handleCloseLightbox}
+        onEditPage={handleEditCapture}
       />
 
       {/* Page Editor overlay wrapped in ErrorBoundary to contain any unmount/editor errors */}

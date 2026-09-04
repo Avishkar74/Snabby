@@ -4,6 +4,10 @@ import { MessageValidator } from './MessageValidator.ts';
 export class ChromeMessageBus implements MessageBus {
   public send(message: ExtensionMessage): void {
     try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+        console.warn('[ChromeMessageBus] chrome.runtime.sendMessage is not available');
+        return;
+      }
       chrome.runtime.sendMessage(message).catch((err) => {
         // Suppress benign connection errors if no receivers are active yet
         console.warn('[ChromeMessageBus] send warning:', err);
@@ -15,6 +19,9 @@ export class ChromeMessageBus implements MessageBus {
 
   public async request<TResponse>(message: ExtensionMessage): Promise<TResponse> {
     try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+        throw new Error('Chrome runtime messaging is not available (extension context invalidated or disconnected)');
+      }
       const msg = {
         ...message,
         requestId: message.requestId || (
@@ -39,6 +46,11 @@ export class ChromeMessageBus implements MessageBus {
   }
 
   public listen(typeOrAction: string, handler: MessageHandler): () => void {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage) {
+      console.warn('[ChromeMessageBus] chrome.runtime.onMessage is not available');
+      return () => {};
+    }
+
     const listener = (
       message: any,
       sender: chrome.runtime.MessageSender,
@@ -94,7 +106,13 @@ export class ChromeMessageBus implements MessageBus {
 
     // Return unsubscribe function
     return () => {
-      chrome.runtime.onMessage.removeListener(listener);
+      try {
+        if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+          chrome.runtime.onMessage.removeListener(listener);
+        }
+      } catch {
+        // Benign cleanup failure if context invalidated
+      }
     };
   }
 }
