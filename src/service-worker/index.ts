@@ -325,9 +325,20 @@ chrome.commands.onCommand.addListener(async (command) => {
       if (captureMode === 'CROP_REGION') {
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!activeTab?.id) {
-          console.error('[Service Worker] No active tab found for crop overlay.');
+          console.warn('[Service Worker] No active tab found for crop overlay.');
           return;
         }
+
+        if (activeTab.url && isSystemPage(activeTab.url)) {
+          console.warn('[Service Worker] Cannot inject crop overlay on Chrome system page:', activeTab.url);
+          broadcastMessage({
+            type: 'SHOW_TOAST',
+            message: 'Cannot capture Chrome system or Web Store pages.',
+            variant: 'warning'
+          });
+          return;
+        }
+
         try {
           // Inject CropOverlay and run it; returns CropRect or { cancelled: true }
           const [injectionResult] = await chrome.scripting.executeScript({
@@ -341,8 +352,13 @@ chrome.commands.onCommand.addListener(async (command) => {
             return;
           }
           captureAdapter.setCropRect(rect);
-        } catch (err) {
-          console.error('[Service Worker] Failed to inject crop overlay:', err);
+        } catch (err: any) {
+          console.warn('[Service Worker] Failed to inject crop overlay:', err?.message || err);
+          broadcastMessage({
+            type: 'SHOW_TOAST',
+            message: 'Cannot capture this page.',
+            variant: 'error'
+          });
           return;
         }
       }

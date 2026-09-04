@@ -53,8 +53,8 @@ console.log('✓ Test 2: ErrorBoundary implementation verified - PASS');
 const appPath = path.resolve('src/app/App.tsx');
 const appCode = fs.readFileSync(appPath, 'utf8');
 assert(appCode.includes('<ErrorBoundary name="PageEditor" fallback={null}>'), 'PageEditor must be wrapped in ErrorBoundary');
-assert(appCode.includes('const isActivated = manualActivated || session !== null;'), 'isActivated must maintain activation when session exists');
-console.log('✓ Test 3: App.tsx wraps PageEditor in ErrorBoundary and protects session activation - PASS');
+assert(appCode.includes('const isActivated = manualActivated;'), 'isActivated must be driven by manualActivated so user can toggle/hide the extension');
+console.log('✓ Test 3: App.tsx wraps PageEditor in ErrorBoundary and allows user to toggle/hide extension - PASS');
 
 // ─── Test 4: Verify main.tsx wraps App in Root ErrorBoundary ───
 const mainPath = path.resolve('src/main.tsx');

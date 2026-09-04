@@ -59,15 +59,6 @@ if (!document.getElementById('wsn-root')) {
 
   const shadow = host.attachShadow({ mode: 'open' });
 
-  // Ensure Google Fonts (Poppins & Montserrat) are loaded into document.head and Shadow DOM for font rendering
-  if (!document.getElementById('wsn-google-fonts')) {
-    const fontLink = document.createElement('link');
-    fontLink.id = 'wsn-google-fonts';
-    fontLink.rel = 'stylesheet';
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Montserrat:wght@600;700&display=swap';
-    document.head.appendChild(fontLink);
-  }
-
   // Scope Excalidraw's `:root` CSS rules so they apply properly inside Shadow DOM
   const scopedExcalidrawCss = excalidrawCss
     .replace(/:root\[dir=ltr\]/g, ':host:not([dir="rtl"])')
@@ -75,11 +66,6 @@ if (!document.getElementById('wsn-root')) {
     .replace(/:root/g, ':host, .excalidraw');
 
   // Inject Snabby-specific styles & Excalidraw styles into Shadow DOM
-  const fontLinkShadow = document.createElement('link');
-  fontLinkShadow.rel = 'stylesheet';
-  fontLinkShadow.href = 'https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Montserrat:wght@600;700&display=swap';
-  shadow.appendChild(fontLinkShadow);
-
   const styleEl = document.createElement('style');
   styleEl.textContent = appCss + '\n' + scopedExcalidrawCss;
   shadow.appendChild(styleEl);

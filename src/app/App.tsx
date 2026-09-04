@@ -109,8 +109,8 @@ export const App: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // Activated if manually toggled or if an active session exists
-  const isActivated = manualActivated || session !== null;
+  // Extension visibility is controlled by user activation toggle (action icon)
+  const isActivated = manualActivated;
 
   // Synchronize manual activation state from global active state
   useEffect(() => {
