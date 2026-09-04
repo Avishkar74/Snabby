@@ -135,8 +135,17 @@ async function runBuild() {
     const srcPath = resolve(import.meta.dirname, src);
     const destPath = resolve(import.meta.dirname, dest);
     if (existsSync(srcPath)) {
-      copyFileSync(srcPath, destPath);
-      console.log(`Copied ${src} -> ${dest}`);
+      if (src.endsWith('.wasm.js')) {
+        let content = readFileSync(srcPath, 'utf8');
+        // Route internal WASM stderr prints (e.g. "Image too small to scale", "Line cannot be recognized")
+        // to console.warn rather than console.error to prevent false-positive Chrome extension error badges
+        content = content.replace(/ka=console\.error\.bind\(console\)/g, 'ka=console.warn.bind(console)');
+        writeFileSync(destPath, content, 'utf8');
+        console.log(`Sanitized and copied ${src} -> ${dest}`);
+      } else {
+        copyFileSync(srcPath, destPath);
+        console.log(`Copied ${src} -> ${dest}`);
+      }
     } else {
       console.warn(`Warning: Source file for Tesseract asset not found: ${src}`);
     }

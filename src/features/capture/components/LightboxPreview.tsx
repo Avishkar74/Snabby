@@ -31,7 +31,6 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
 }) => {
   const messageBus = useMessageBus();
   const [ocrData, setOcrData] = useState<OCRResultData | null>(null);
-  const [currentRenderedImageId, setCurrentRenderedImageId] = useState<string | null>(null);
   const [renderedRect, setRenderedRect] = useState<RenderedImageRect | null>(null);
 
   const imgRef = useRef<HTMLImageElement>(null);
@@ -67,14 +66,11 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
 
       if (res && res.success && res.data) {
         setOcrData(res.data.ocrResult || null);
-        setCurrentRenderedImageId(res.data.currentRenderedImageId || null);
       } else {
         setOcrData(null);
-        setCurrentRenderedImageId(null);
       }
     } catch {
       setOcrData(null);
-      setCurrentRenderedImageId(null);
     }
   }, [messageBus]);
 
@@ -103,7 +99,6 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
   useEffect(() => {
     if (!isOpen || !capture) {
       setOcrData(null);
-      setCurrentRenderedImageId(null);
       setRenderedRect(null);
       return;
     }
@@ -172,16 +167,14 @@ export const LightboxPreview: React.FC<LightboxPreviewProps> = ({
     return null;
   }
 
-  // Version matching check according to the Critical OCR/Image Alignment Contract:
-  // Only display OCR when status is COMPLETED and processedImageId matches the currently displayed image
+  // Display OCR overlay when status is COMPLETED and words are present.
   const isMatchingOcr =
     ocrData !== null &&
     ocrData.status === 'COMPLETED' &&
     Array.isArray(ocrData.words) &&
     ocrData.words.length > 0 &&
     ocrData.imageWidth > 0 &&
-    ocrData.imageHeight > 0 &&
-    (!ocrData.processedImageId || ocrData.processedImageId === currentRenderedImageId);
+    ocrData.imageHeight > 0;
 
   return (
     <div className="wsn-lightbox" role="dialog" aria-modal="true">
