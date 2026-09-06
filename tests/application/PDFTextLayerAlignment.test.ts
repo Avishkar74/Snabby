@@ -12,7 +12,7 @@ import {
 import { OCRStatus } from '../../src/domain/ocr/ocr.types.ts';
 import type { OCRResult } from '../../src/domain/ocr/OCRResult.ts';
 import type { ImageAsset } from '../../src/domain/image/image.types.ts';
-import type { Session } from '../../domain/session/Session.ts';
+import type { Session } from '../../src/domain/session/Session.ts';
 import type { SessionId, CaptureId, ImageId, PageId } from '../../src/domain/common/ids.ts';
 
 console.log('Running PDF OCR Text Layer Alignment & Freshness Tests...');
@@ -163,7 +163,8 @@ async function testOCRFreshnessScenarios(): Promise<void> {
   const session: Session = {
     id: 'sess-1' as SessionId,
     name: 'Freshness Test Session',
-    createdAt: new Date(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
 
   const imageId = 'img-100' as ImageId;

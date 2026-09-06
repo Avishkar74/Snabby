@@ -1,15 +1,4 @@
-import {
-  PDFDocument,
-  StandardFonts,
-  PDFOperator,
-  PDFOperatorNames,
-  PDFNumber,
-  beginText,
-  endText,
-  pushGraphicsState,
-  popGraphicsState,
-  type PDFFont,
-} from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, type PDFFont } from 'pdf-lib';
 import type { PDFService } from '../../application/interfaces/services/PDFService.ts';
 import type { Session } from '../../domain/session/Session.ts';
 import type { Page } from '../../domain/page/Page.ts';
@@ -45,17 +34,6 @@ function canEncodeText(font: PDFFont, text: string): boolean {
   } catch {
     return false;
   }
-}
-
-interface FilteredWord {
-  text: string;
-  box: { x: number; y: number; width: number; height: number };
-}
-
-interface LineCluster {
-  minY: number;
-  maxY: number;
-  words: FilteredWord[];
 }
 
 export class PdfLibPDFService implements PDFService {
@@ -109,8 +87,12 @@ export class PdfLibPDFService implements PDFService {
 
         const pdfPage = pdfDoc.addPage([pageWidth, pageHeight]);
 
-        const renderedWidth = imageWidth;
-        const renderedHeight = imageHeight;
+        // Image is drawn at natural pixel size (scale = 1.0).
+        // OCR Tesseract always runs on the exact same blob embedded here,
+        // so ocrResult.imageWidth === imageWidth and ocrResult.imageHeight === imageHeight.
+        const scale = 1.0;
+        const renderedWidth = imageWidth * scale;
+        const renderedHeight = imageHeight * scale;
         const imgLeft = margin;
         const imgBottom = margin;
 
@@ -128,162 +110,48 @@ export class PdfLibPDFService implements PDFService {
         const isOcrFreshAndCompleted =
           ocrResult !== null &&
           ocrResult.status === OCRStatus.COMPLETED &&
-          ocrResult.processedImageId === effectiveImageId;
+          (
+            ocrResult.processedImageId === effectiveImageId ||
+            // Legacy: accept unversioned OCR if page was never edited (original screenshot)
+            (!ocrResult.processedImageId && effectiveImageId === (page.imageId ?? effectiveImageId))
+          );
 
         // Handle valid zero-word completed OCR without errors (e.g. blank custom pages or scribble-only pages)
         if (isOcrFreshAndCompleted && Array.isArray(ocrResult.words) && ocrResult.words.length > 0) {
-          // 5. Filter valid non-empty words with positive dimensions
-          const validWords: FilteredWord[] = [];
-          for (const w of ocrResult.words) {
-            if (!w || typeof w !== 'object') continue;
-            const box = w.boundingBox;
+          // 5. Use the OCR imageHeight as the Y-flip anchor.
+          // This is the natural pixel height of the image Tesseract processed.
+          const ocrImageHeight = (ocrResult.imageHeight > 0) ? ocrResult.imageHeight : imageHeight;
+
+          for (const word of ocrResult.words) {
+            const box = word.boundingBox;
             if (!box || typeof box.x !== 'number' || typeof box.y !== 'number') continue;
-            const rw = typeof box.width === 'number' ? box.width : 0;
-            const rh = typeof box.height === 'number' ? box.height : 0;
-            if (rw <= 0 || rh <= 0) continue;
-            const text = typeof w.text === 'string' ? w.text.trim() : String(w.text || '').trim();
-            if (text.length === 0) continue;
-            validWords.push({ text, box: { x: box.x, y: box.y, width: rw, height: rh } });
-          }
+            const bw = typeof box.width === 'number' ? box.width : 0;
+            const bh = typeof box.height === 'number' ? box.height : 0;
+            if (bw <= 0 || bh <= 0) continue;
 
-          if (validWords.length > 0) {
-            // 6. Cluster words into visual lines using adaptive vertical overlap
-            validWords.sort((a, b) => {
-              const aCenter = a.box.y + a.box.height / 2;
-              const bCenter = b.box.y + b.box.height / 2;
-              return aCenter - bCenter;
+            const text = typeof word.text === 'string' ? word.text.trim() : String(word.text || '').trim();
+            if (!text || !canEncodeText(helveticaFont, text)) continue;
+
+            // === Proven main-branch coordinate formula ===
+            //
+            // OCR space: top-left origin, Y increases downward
+            // PDF space: bottom-left origin, Y increases upward
+            //
+            // pdfX   = imgLeft + x * scale
+            // pdfY   = imgBottom + (ocrImageHeight - y - h) * scale  ← flip Y
+            // size   = h * scale                                       ← font size = word height
+            const pdfX = imgLeft + box.x * scale;
+            const pdfY = imgBottom + (ocrImageHeight - box.y - bh) * scale;
+            const fontSize = Math.max(1, bh * scale);
+
+            pdfPage.drawText(text, {
+              x: pdfX,
+              y: pdfY,
+              size: fontSize,
+              font: helveticaFont,
+              color: rgb(0, 0, 0),
+              opacity: 0,
             });
-
-            const lines: LineCluster[] = [];
-            for (const word of validWords) {
-              const wTop = word.box.y;
-              const wBottom = word.box.y + word.box.height;
-              const wHeight = word.box.height;
-
-              let bestLine: LineCluster | null = null;
-              let bestOverlapRatio = 0;
-
-              for (const line of lines) {
-                const overlapTop = Math.max(wTop, line.minY);
-                const overlapBottom = Math.min(wBottom, line.maxY);
-                const overlap = overlapBottom - overlapTop;
-
-                if (overlap > 0) {
-                  const lineH = line.maxY - line.minY;
-                  const minH = Math.min(wHeight, lineH);
-                  const ratio = overlap / minH;
-                  // Adaptive vertical overlap criterion: significant vertical overlap relative to word/line height
-                  if (ratio >= 0.5 && ratio > bestOverlapRatio) {
-                    bestOverlapRatio = ratio;
-                    bestLine = line;
-                  }
-                }
-              }
-
-              if (bestLine) {
-                bestLine.words.push(word);
-                bestLine.minY = Math.min(bestLine.minY, wTop);
-                bestLine.maxY = Math.max(bestLine.maxY, wBottom);
-              } else {
-                lines.push({
-                  minY: wTop,
-                  maxY: wBottom,
-                  words: [word],
-                });
-              }
-            }
-
-            // Sort lines top-to-bottom
-            lines.sort((a, b) => a.minY - b.minY);
-
-            // Sort words within each line strictly left-to-right (x ascending)
-            for (const line of lines) {
-              line.words.sort((a, b) => a.box.x - b.box.x);
-            }
-
-            // 7. Define explicit source and target rectangles
-            const sourceRect = {
-              width: ocrResult.imageWidth || imageWidth,
-              height: ocrResult.imageHeight || imageHeight,
-            };
-            const targetRect = {
-              x: imgLeft,
-              y: imgBottom,
-              width: renderedWidth,
-              height: renderedHeight,
-            };
-
-            const scaleX = targetRect.width / Math.max(1, sourceRect.width);
-            const scaleY = targetRect.height / Math.max(1, sourceRect.height);
-
-            // Ensure font is registered in the page dictionary to obtain the font resource key
-            pdfPage.setFont(helveticaFont);
-            const fontName = pdfPage.node.newFontDictionary(helveticaFont.name, helveticaFont.ref);
-
-            // 8. Emit invisible selectable text operators with unified line baseline and line font size
-            for (const line of lines) {
-              // Calculate unified line vertical bounds in PDF coordinate space
-              const linePdfYBottom = targetRect.y + targetRect.height - (line.maxY * scaleY);
-              const linePdfHeight = Math.max(1, (line.maxY - line.minY) * scaleY);
-              const lineFontSize = Math.max(1, helveticaFont.sizeAtHeight(linePdfHeight));
-
-              const totalH = helveticaFont.heightAtSize(lineFontSize, { descender: true });
-              const ascenderH = helveticaFont.heightAtSize(lineFontSize, { descender: false });
-              const descenderMagnitude = Math.max(0, totalH - ascenderH);
-              const lineBaselineY = linePdfYBottom + descenderMagnitude;
-
-              const lineOps: PDFOperator[] = [
-                pushGraphicsState(),
-                beginText(),
-                PDFOperator.of(PDFOperatorNames.SetTextRenderingMode, [PDFNumber.of(3)]), // 3 = invisible text
-                PDFOperator.of(PDFOperatorNames.SetFontAndSize, [fontName, PDFNumber.of(lineFontSize)]),
-              ];
-
-              let hasEmittedWords = false;
-
-              for (const word of line.words) {
-                // Unicode safety: skip invisible text overlay for this word if font cannot encode it
-                if (!canEncodeText(helveticaFont, word.text)) {
-                  continue;
-                }
-
-                const wordPdfX = targetRect.x + (word.box.x * scaleX);
-                const wordPdfWidth = Math.max(0, word.box.width * scaleX);
-                if (wordPdfWidth <= 0) {
-                  continue;
-                }
-
-                let horizontalScale = 100;
-                try {
-                  const naturalWidth = helveticaFont.widthOfTextAtSize(word.text, lineFontSize);
-                  if (naturalWidth > 0 && wordPdfWidth > 0) {
-                    horizontalScale = Math.max(10, Math.min(500, (wordPdfWidth / naturalWidth) * 100));
-                  }
-                } catch {
-                  horizontalScale = 100;
-                }
-
-                lineOps.push(
-                  PDFOperator.of(PDFOperatorNames.SetTextHorizontalScaling, [PDFNumber.of(horizontalScale)]),
-                  PDFOperator.of(PDFOperatorNames.SetTextMatrix, [
-                    PDFNumber.of(1),
-                    PDFNumber.of(0),
-                    PDFNumber.of(0),
-                    PDFNumber.of(1),
-                    PDFNumber.of(wordPdfX),
-                    PDFNumber.of(lineBaselineY),
-                  ]),
-                  PDFOperator.of(PDFOperatorNames.ShowText, [helveticaFont.encodeText(word.text)])
-                );
-
-                hasEmittedWords = true;
-              }
-
-              if (hasEmittedWords) {
-                lineOps.push(endText(), popGraphicsState());
-                pdfPage.pushOperators(...lineOps);
-              }
-            }
           }
         }
       }
@@ -295,4 +163,3 @@ export class PdfLibPDFService implements PDFService {
     }
   }
 }
-

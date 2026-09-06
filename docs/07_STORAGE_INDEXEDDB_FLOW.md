@@ -2300,7 +2300,6 @@ These entities map directly to the finalized database schemas implemented in `Da
 
 
 
-
 ## ARCHITECTURE UPDATE: Page Migration & Annotation Storage (DB Version 2)
 
 - **Physical Store**: The physical IndexedDB object store remains named `captures` for schema compatibility, while the domain layer uses `Page`.
@@ -2315,19 +2314,14 @@ These entities map directly to the finalized database schemas implemented in `Da
   - Raw screenshots are stored in `images` (`page.imageId`) and are **never deleted** during editing.
   - Rendered annotated images are stored in `images` under a new `ImageId` (`page.renderedImageId`).
   - When re-saving annotations for a page, `SavePageAnnotations` deletes the previous `renderedImageId` `ImageAsset` from IndexedDB if `effectiveRenderedImageId !== page.imageId`, preventing orphan image records.
+  - **Local Editor Images**: When a user adds local image files in the editor, they are persisted as separate `ImageAsset` records in `images` (with IDs corresponding to Excalidraw file IDs). Unreferenced image assets are cleaned up on annotation save and capture deletion.
+- **OCR Results Store (`ocrResults`)**:
+  - `OCRResult` records remain keyed by `captureId` (`page.id`).
+  - Each `OCRResult` includes `processedImageId?: string`, recording the exact `ImageAsset.id` from which text and bounding boxes were extracted.
+  - For unedited screenshots: `processedImageId === page.imageId`.
+  - For edited pages: `processedImageId === page.renderedImageId`.
+  - Persistence-time validation ensures stale OCR from superseded jobs is never written to `ocrResults`.
 - **Infrastructure Services**:
   - `IndexedDBPageRepository`: Manages CRUD for `Page` domain entities.
   - `IndexedDBPagePersistenceService`: Handles multi-store transaction setup.
   - `PageMapper`: Maps between `Page` domain instances and raw IndexedDB record schemas.
-
-- The physical IndexedDB store remains named captures for legacy compatibility.
-- The domain model now uses the Page entity.
-- The database version was upgraded from v1 to v2.
-- Legacy capture records are transparently backfilled during DB migration:
-  - 	ype defaults to SCREENSHOT.
-  - 
-enderedImageId defaults to imageId.
-  - nnotationData defaults to 
-ull.
-  - ersion defaults to 1.
-- The infrastructure layer separates persistence from domain representation using PageRepository, PagePersistenceService, PageMapper, and IndexedDBPageRepository.

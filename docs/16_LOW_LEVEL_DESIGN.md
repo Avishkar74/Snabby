@@ -1263,21 +1263,22 @@ The resulting architecture is:
 
 | Module | Exact File Path | Responsibility | Boundary |
 | :--- | :--- | :--- | :--- |
-| **React Components** | `src/app/App.tsx`, `src/features/**/components/*.tsx` | Renders UI views, cards, modals, lightbox, PageEditor modal, floating mascot | Presentation (Shadow DOM) |
+| **React Components** | `src/app/App.tsx`, `src/features/**/components/*.tsx` | Renders UI views, cards, modals, lightbox with prominent Edit button, PageEditor modal, floating mascot | Presentation (Shadow DOM) |
+| **Lightbox Preview Component** | `src/features/capture/components/LightboxPreview.tsx` | Renders lightbox modal with direct Edit button, validates OCR freshness against `activeRenderedImageId`, auto-refreshes on `OCR_COMPLETED`, and aligns selectable text overlay via `ResizeObserver` | Presentation (Shadow DOM) |
 | **Page Editor Component** | `src/features/page-editor/components/PageEditor.tsx` | Hosts Excalidraw vector canvas, initial scene setup, debounced auto-save, overlay event isolation | Presentation (Shadow DOM) |
 | **Page Editor Utility** | `src/features/page-editor/utils/renderBoundedPageImage.ts` | Bounded vector canvas export, padding compensation, canvas compositing & cropping | Presentation / Image |
 | **React Hooks** | `src/features/**/hooks/*.ts` | Connects React UI to MessageBus / Service Worker commands | Presentation State |
 | **Message Bus Provider** | `src/app/providers/MessageBusContext.tsx` | Supplies `MessageBus` to React component tree | Presentation Context |
 | **Use Cases (Session)** | `src/application/session/*.ts` | Orchestrates create, get, update, delete session | Application |
-| **Use Case (Page Editor)** | `src/application/page/GetPageEditorImage.ts` | Fetches `Page` entity and raw screenshot `ImageAsset` for PageEditor initialization | Application |
-| **Use Case (Page Editor)** | `src/application/page/SavePageAnnotations.ts` | Persists vector `annotationData`, creates new composited `ImageAsset`, deletes old rendered asset, updates `Page` | Application |
+| **Use Case (Page Editor)** | `src/application/page/GetPageEditorImage.ts` | Fetches `Page` entity, raw screenshot `ImageAsset`, and editor files for PageEditor initialization | Application |
+| **Use Case (Page Editor)** | `src/application/page/SavePageAnnotations.ts` | Persists vector `annotationData` and added local image files, creates new composited `ImageAsset`, deletes old rendered asset, updates `Page` | Application |
 | **Use Case (Page Custom)** | `src/application/page/CreateCustomPage.ts` | Generates A4 blank PNG Blob (`1240 × 1754`), persists base `ImageAsset`, calculates target order, saves `Page` atomically | Application |
 | **Use Case (Capture)** | `src/application/page/CreateScreenshotPage.ts` | Orchestrates screenshot acquisition, image processing, atomic persistence, async OCR dispatch | Application |
-| **Use Cases (OCR)** | `src/application/ocr/RunOCR.ts`, `GetOCRResult.ts` | Orchestrates OCR execution and result persistence | Application |
+| **Use Cases (OCR)** | `src/application/ocr/RunOCR.ts`, `GetOCRResult.ts` | Orchestrates single-flight OCR execution per `(pageId:imageId)`, validates freshness against latest Page at persistence time, and persists `OCRResult` | Application |
 | **Use Cases (PDF)** | `src/application/pdf/GeneratePDF.ts`, `DownloadPDF.ts` | Orchestrates PDF document assembly and download dispatch | Application |
-| **Domain Entities** | `src/domain/**/*.ts` | Encapsulates Session, Capture, OCRResult invariants & models | Domain |
+| **Domain Entities** | `src/domain/**/*.ts` | Encapsulates Session, Page, ImageAsset, OCRResult invariants & models (`effectiveRenderedImageId`, `processedImageId`) | Domain |
 | **Session Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBSessionRepository.ts` | Session entity IndexedDB persistence | Infrastructure / DB |
-| **Capture Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBCaptureRepository.ts` | Capture entity IndexedDB persistence | Infrastructure / DB |
+| **Capture Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBCaptureRepository.ts` | Capture / Page entity IndexedDB persistence | Infrastructure / DB |
 | **Image Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBImageRepository.ts` | ImageAsset (Blob) IndexedDB persistence | Infrastructure / DB |
 | **OCR Repository** | `src/infrastructure/indexeddb/repositories/IndexedDBOCRRepository.ts` | OCRResult entity IndexedDB persistence | Infrastructure / DB |
 | **Capture Persistence Service** | `src/infrastructure/indexeddb/services/IndexedDBCapturePersistenceService.ts` | Atomic multi-store persistence across `['captures', 'images']` | Infrastructure / DB |
@@ -1285,13 +1286,13 @@ The resulting architecture is:
 | **OCR Adapter** | `src/infrastructure/ocr/TesseractOCRAdapter.ts` | Sends OCR request to Offscreen Document over MessageBus, normalizes word bounding boxes | Infrastructure / OCR |
 | **Offscreen Host** | `src/infrastructure/ocr/offscreen/offscreen.ts` | Listens for OCR messages in offscreen DOM context, runs TesseractWorker | Infrastructure / Offscreen |
 | **Tesseract Worker** | `src/infrastructure/ocr/TesseractWorker.ts` | Initializes local offline Tesseract.js worker and executes OCR recognition | Infrastructure / WASM |
-| **PDF Service** | `src/infrastructure/pdf/PdfLibPDFService.ts` | Assembles PDF with embedded images and selectable invisible OCR text layer using `pdf-lib` | Infrastructure / PDF |
+| **PDF Service** | `src/infrastructure/pdf/PdfLibPDFService.ts` | Assembles PDF with embedded images and selectable invisible OCR text layer using `pdf-lib`, strictly validating OCR freshness against `resolveEffectiveImageId(page)` | Infrastructure / PDF |
 | **Coordinate Mapper** | `src/infrastructure/pdf/coordinate/CoordinateMapper.ts` | Maps image-space top-left coordinates to PDF-space bottom-left coordinates | Infrastructure / Math |
 | **Download Service** | `src/infrastructure/chrome/downloads/ChromeDownloadAdapter.ts` | Downloads PDF Blob via `chrome.downloads.download()` using data URL conversion | Infrastructure / Chrome |
 | **Capture Adapter** | `src/infrastructure/chrome/capture/ChromeCaptureAdapter.ts` | Captures visible tab and performs canvas cropping with coordinate clamping | Infrastructure / Chrome |
 | **Crop Overlay** | `src/content/CropOverlay.ts` | Injected drag-selection overlay with devicePixelRatio scaling | Infrastructure / Content |
 | **Message Bus** | `src/infrastructure/messaging/ChromeMessageBus.ts` | Correlation-based request/response and broadcast event bus | Infrastructure / Messaging |
-| **Service Worker** | `src/service-worker/index.ts` | Extension runtime composition root, shortcut listener, command router | Composition Root |
+| **Service Worker** | `src/service-worker/index.ts` | Extension runtime composition root, shortcut listener, command router (handles non-blocking `SAVE_PAGE_ANNOTATIONS`, non-blocking auto-healing `GET_PAGE_OCR`, and freshness in `GET_ALL_THUMBNAILS`) | Composition Root |
 
 
 ---

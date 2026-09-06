@@ -872,26 +872,26 @@ This is an architectural requirement, **not a v1 feature**.
 Users must be able to visually annotate captured page screenshots using an integrated vector editor (Excalidraw).
 
 Requirements:
-1. Users can launch the editor by clicking the **Edit** action on any captured page card in the side panel.
+1. Users can launch the editor by clicking the **Edit** action on any captured page card in the side panel, or directly via the **Edit** button inside the Lightbox Preview modal.
 2. The editor must display the original screenshot as a locked background element at position `(0, 0)`.
-3. Users can draw, write, and add vector shapes over the screenshot.
-4. Annotation data (`Page.annotationData`) must be serialized as Excalidraw element JSON and stored separately from the background screenshot.
-5. Reopening the editor for an annotated page must restore all previous vector drawings in an editable state.
+3. Users can draw, write, and add vector shapes or local images over the screenshot.
+4. Annotation data (`Page.annotationData`) must be serialized as Excalidraw element JSON and stored separately from the background screenshot. Added image files must be saved to IndexedDB image storage.
+5. Reopening the editor for an annotated page must restore all previous vector drawings and added images in an editable state.
 6. The editor UI must run inside Snabby's Shadow DOM as a full-screen modal overlay.
 
 ---
 
-# 32. Requirement: Bounded Rendered Image Persistence & Display Fallback
+# 32. Requirement: Bounded Rendered Image Persistence & OCR Lifecycle
 
-The vector annotations must be composited into a flattened visual image for display in side panel previews, lightboxes, and generated PDFs.
+The vector annotations and added elements must be composited into a flattened visual image for display in side panel previews, lightboxes, and generated PDFs, serving as the single source of truth for OCR.
 
 Requirements:
 1. **Bounded Compositing**: Drawings made outside the original screenshot dimensions (`width` × `height`) must be strictly cropped out of the final rendered image (`renderBoundedPageImage`).
-2. **Rendered Image Asset Storage**: The composited visual image (`screenshot + drawings`) must be saved to IndexedDB as a separate `ImageAsset` with a unique `renderedImageId`.
+2. **Rendered Image Asset Storage**: The composited visual image (`screenshot + drawings + text + added images`) must be saved to IndexedDB as a separate `ImageAsset` with a unique `renderedImageId`.
 3. **Old Asset Cleanup**: Re-saving page annotations must replace and delete the previous rendered `ImageAsset` from IndexedDB to avoid storage leaks.
 4. **Transparent Image Fallback**: All visual consumers (side panel, lightbox, PDF exporter) must resolve page images via `page.effectiveRenderedImageId` (`renderedImageId ?? imageId`), ensuring transparent display of the latest annotated page version.
-
----
+5. **Final Rendered Image as OCR Source**: OCR is associated with the exact image currently represented by `page.effectiveRenderedImageId`. Because OCR processes the final composited image rather than solely the original screenshot, text inside added local images, drawings, and vector text elements is recognized.
+6. **Non-Blocking Edit Save**: When saving annotations (`SAVE_PAGE_ANNOTATIONS`), the composited image asset is persisted and `page.effectiveRenderedImageId` is updated immediately. The save operation succeeds and returns to the editor without awaiting OCR completion. OCR runs asynchronously in the background.
 
 ---
 
@@ -904,6 +904,7 @@ Users must be able to select and copy text directly from the image preview/light
 2. **Transparent Text Layer**: Selectable text must be overlaid across the image using visually transparent text elements (`color: transparent`).
 3. **Native Selection Highlighting**: When the user clicks and drags over text, the browser selection highlight must be clearly visible (e.g. `background: rgba(59, 130, 246, 0.45)`) while keeping text transparent so the underlying screenshot remains sharp and readable.
 4. **Clipboard Copying**: Standard keyboard (`Ctrl+C` / `Cmd+C`) and context menu copy operations must place the selected text into the system clipboard in natural reading order.
+5. **Direct Page Editing**: The preview modal provides an **Edit** button in its top-right control header that transitions directly to the page editor for the currently displayed capture without cloning or duplicating pages.
 
 ### Alignment & Dimension Contract
 1. **Rendered Image Element Sizing**: The selectable OCR overlay must match the exact rendered width, height, and viewport offsets of the visible `<img>` element rather than arbitrary container bounds.
@@ -912,11 +913,21 @@ Users must be able to select and copy text directly from the image preview/light
 3. **Exact Bounding Boxes**: Visual word positioning must preserve the raw word bounding box from OCR without truncation or cumulative distortion.
 4. **Dynamic Resizing**: The overlay must adjust seamlessly on window resize, viewport recalculation, and image orientation changes using `ResizeObserver`.
 
-### Version Matching Contract
-1. **Version Match Enforcement**: The selectable OCR overlay must only be rendered when `OCRResult.status === COMPLETED` and `OCRResult.processedImageId` matches the currently displayed `page.effectiveRenderedImageId`.
-2. **Annotation Invalidation**: When a page is edited and annotated, the previous OCR overlay must not be displayed over the newly modified image until fresh OCR has completed for the new rendered image.
-3. **Zero Redundant Processing**: If valid OCR results already exist for the active image version, opening the preview must immediately reuse the cached data without re-triggering Tesseract OCR.
-4. **Self-Healing**: If a page exists but previously saved OCR data is missing word bounding boxes, the system must trigger background OCR computation to backfill the word bounding boxes automatically.
+### Strict Freshness & Preview Lifecycle Contract
+1. **Strict Freshness Invariant**: OCR is valid only when:
+   $$\text{ocrResult.processedImageId} === \text{page.effectiveRenderedImageId}$$
+   Stale OCR must never be used for preview selectable text overlays, PDF text layers, or completion status calculations.
+2. **Preview Behavior During OCR**:
+   - When the preview opens for an edited or newly captured page, it checks if fresh OCR exists.
+   - If fresh OCR exists (`processedImageId === effectiveRenderedImageId`), the selectable OCR overlay is displayed.
+   - If OCR is pending, processing, or stale, the preview displays the image normally with no overlay. Stale OCR coordinates from an older image version are never temporarily shown over a newly edited image.
+   - When background OCR completes and an `OCR_COMPLETED` event is received, the preview automatically refreshes and displays the fresh selectable overlay.
+3. **Non-Blocking Auto-Healing (`GET_PAGE_OCR`)**:
+   - When the preview queries OCR via `GET_PAGE_OCR`, if OCR is missing or stale (`processedImageId !== effectiveRenderedImageId`), background OCR is started or reused via single-flight deduplication.
+   - `GET_PAGE_OCR` returns `{ success: true, data: { ocrResult: null, currentRenderedImageId } }` immediately without waiting for OCR processing to complete.
+4. **Concurrency & Race Condition Guarantees**:
+   - **Single-flight OCR**: Only one OCR job processes a given `(pageId, renderedImageId)` at a time. Concurrent callers reuse the in-flight promise.
+   - **Persistence-Time Freshness Validation**: Before persisting an OCR result, `RunOCR` re-reads the latest page from `PageRepository`. If `page.effectiveRenderedImageId` has changed (e.g. from rapid consecutive edits), the outdated OCR result is discarded and does not overwrite newer OCR data or mark the page completed.
 
 ---
 

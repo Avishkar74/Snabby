@@ -26,10 +26,32 @@ interface PositionedWord {
 }
 
 /**
- * SRP: Renders a pixel-accurate selectable text overlay directly over the visible rendered
+ * Renders a pixel-accurate selectable text overlay directly over the visible rendered
  * <img> element according to the Critical OCR/Image Alignment Contract.
- * Groups words into visual lines and sorts strictly left-to-right within each line,
- * guaranteeing seamless reading order and unbroken DOM drag-selection across sentences.
+ *
+ * === Coordinate Mapping (proven identical model to PDF) ===
+ *
+ * OCR bounding boxes are in original image pixel space (top-left origin):
+ *   word at (x, y, w, h) in an image of (imageWidth × imageHeight)
+ *
+ * The img element is measured via getBoundingClientRect() which gives the
+ * actual rendered pixel rect (display: block, no letterboxing since the img
+ * element itself sizes to fit its content without extra dead space).
+ *
+ * Scale factors:
+ *   scaleX = renderedRect.width  / imageWidth
+ *   scaleY = renderedRect.height / imageHeight
+ *
+ * Mapped position in rendered space (overlay div origin = img element top-left):
+ *   left   = word.x * scaleX
+ *   top    = word.y * scaleY         ← same direction (both top-down)
+ *   width  = word.w * scaleX
+ *   height = word.h * scaleY
+ *
+ * Font size = word.h * scaleY  (same as PDF: font size = OCR box height * scale)
+ * Line height = height (= word.h * scaleY) so text is vertically centred in the box.
+ *
+ * Groups words into visual lines so DOM drag-selection spans full sentences.
  */
 export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
   words,
@@ -52,13 +74,13 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
     return null;
   }
 
-  // Exact scale factors mapping original image pixel space to currently rendered image pixel space
+  // Exact scale factors mapping original image pixel space → rendered pixel space.
+  // These match the PDF coordinate model: OCR coords / image natural size * rendered size.
   const scaleX = renderedRect.width / imageWidth;
   const scaleY = renderedRect.height / imageHeight;
 
-  // Group words into visual lines and sort strictly left-to-right within each line,
-  // then top-to-bottom across lines. This guarantees seamless reading and DOM selection order.
   const positionedWords = useMemo(() => {
+    // 1. Filter valid words with positive-area bounding boxes
     const valid = words.filter((w) => {
       if (!w || typeof w !== 'object') return false;
       const box = w.boundingBox;
@@ -70,13 +92,15 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
       return t.length > 0;
     });
 
-    // Sort by vertical center initially
+    // 2. Sort by vertical midpoint for line grouping
     const sortedByMidY = [...valid].sort((a, b) => {
       const aMid = a.boundingBox.y + a.boundingBox.height / 2;
       const bMid = b.boundingBox.y + b.boundingBox.height / 2;
       return aMid - bMid;
     });
 
+    // 3. Cluster words into visual lines using midpoint proximity.
+    //    Tolerance = 50% of the smaller height of the word or current line height.
     interface LineCluster {
       minY: number;
       maxY: number;
@@ -92,7 +116,7 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
       for (const line of lines) {
         const lineMidY = (line.minY + line.maxY) / 2;
         const lineH = line.maxY - line.minY;
-        const tol = Math.min(box.height, lineH) * 0.55;
+        const tol = Math.min(box.height, lineH) * 0.5;
         if (Math.abs(wMidY - lineMidY) <= tol) {
           targetLine = line;
           break;
@@ -112,35 +136,41 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
       }
     }
 
-    // Sort lines top-to-bottom
+    // 4. Sort lines top-to-bottom
     lines.sort((a, b) => a.minY - b.minY);
 
-    // Sort words in each line strictly left-to-right (x ascending)
+    // 5. For each line, sort words left-to-right and compute positions
     const result: PositionedWord[] = [];
     for (const line of lines) {
       line.words.sort((a, b) => a.boundingBox.x - b.boundingBox.x);
 
-      // Unified vertical line geometry for all words on this visual line
+      // Unified line vertical geometry in rendered pixel space.
+      // Use the exact OCR box extents — same formula as PDF coordinate mapping.
       const lineTopPx = line.minY * scaleY;
-      const lineHPx = Math.max((line.maxY - line.minY) * scaleY, 2);
-      const fontSizePx = Math.max(9, Math.round(lineHPx * 0.85));
+      const lineHPx = Math.max(1, (line.maxY - line.minY) * scaleY);
+
+      // Font size = line height in rendered space.
+      // This is the same invariant as the PDF text layer: fontSize = OCR box height * scale.
+      // CSS lineHeight = height keeps the text vertically centered in the span box.
+      const fontSizePx = lineHPx;
 
       for (let i = 0; i < line.words.length; i++) {
         const word = line.words[i];
         const nextWord = line.words[i + 1];
         const box = word.boundingBox;
 
+        // Word left position in rendered space
         const xPx = box.x * scaleX;
         const rawW = box.width * scaleX;
 
-        // Bridge inter-word gaps on the same line so mouse selection doesn't drop spaces
-        let wPx = Math.max(rawW, 2);
+        // Bridge inter-word gaps so mouse drag-selection doesn't fall through spaces.
+        // Only bridge if the gap is < 2x the line height (prevents overreaching).
+        let wPx = Math.max(rawW, 1);
         if (nextWord) {
           const nextXPx = nextWord.boundingBox.x * scaleX;
-          const distanceToNext = nextXPx - xPx;
-          // Only bridge if gap is reasonable (less than 3x line height)
-          if (distanceToNext > rawW && distanceToNext <= rawW + lineHPx * 3) {
-            wPx = distanceToNext;
+          const gap = nextXPx - (xPx + rawW);
+          if (gap > 0 && gap <= lineHPx * 2) {
+            wPx = nextXPx - xPx;
           }
         }
 
@@ -189,6 +219,8 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
             top: `${pw.yPx}px`,
             width: `${pw.wPx}px`,
             height: `${pw.hPx}px`,
+            // Font size = line height in rendered space, matching the PDF text-layer invariant.
+            // CSS lineHeight = height vertically centres the text in the span box.
             fontSize: `${pw.fontSizePx}px`,
             lineHeight: `${pw.hPx}px`,
             fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -209,4 +241,3 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
 };
 
 export default OCRTextOverlay;
-

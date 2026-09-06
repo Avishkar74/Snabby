@@ -364,32 +364,47 @@ The exact processing steps come from the existing implementation and will be fin
 
 # 10. OCR Functions
 
-## 10.1 Start OCR
+## 10.1 RunOCR Use Case
+
+### Purpose
+Executes OCR text recognition on an `ImageAsset` for a given `Page` (or legacy capture) in the background, persists normalized word bounding boxes, and manages page processing status.
 
 ### Input
-
-```text
-OCRInput
-├── captureId
-└── image
+```typescript
+interface RunOCRInput {
+  page?: Page;
+  capture?: any;
+  image: ImageAsset;
+}
 ```
 
 ### Output
-
-```text
-OCRResult
+```typescript
+Promise<OCRResult>
 ```
 
-The function is asynchronous.
+### Concurrency & Freshness Guarantees:
+1. **Single-Flight Deduplication**: Maintains `inFlightJobs: Map<string, Promise<OCRResult>>` keyed by `${page.id}:${image.id}`. If an OCR job is already running or queued for that exact page and image version, concurrent callers await the shared Promise.
+2. **Serial Processing Queue**: Jobs execute through a serial Promise queue to avoid overwhelming the single Tesseract offscreen worker.
+3. **Persistence-Time Freshness Validation**: Before persisting the OCR result into `OCRRepository` or updating `Page.status` to `COMPLETED`:
+   - Re-reads the latest page from `PageRepository`.
+   - Verifies `page.effectiveRenderedImageId === image.id`.
+   - If the page was edited again while OCR was in flight, the outdated result is discarded, avoiding state corruption.
 
 ```text
-startOCR()
+RunOCR.execute(input)
       ↓
-Offscreen Document
+Check inFlightJobs (${pageId}:${imageId})
       ↓
-Tesseract
+Offscreen Document (Tesseract.js WASM)
       ↓
-OCR Result
+Re-read latest page (Persistence-Time Freshness Check)
+      ↓
+page.effectiveRenderedImageId === image.id ?
+      │
+      ├── Yes → Save OCRResult (processedImageId) & update Page.status = COMPLETED
+      │
+      └── No  → Discard superseded result (suppress broadcast)
 ```
 
 ---
@@ -936,7 +951,7 @@ The finalized Snabby application layer exposes concrete use cases organized by d
 | **Session** | `src/application/session/UpdateSession.ts` | `execute(input: UpdateSessionInput): Promise<Session>` | `SessionRepository` |
 | **Session** | `src/application/session/DeleteSession.ts` | `execute(id: SessionId): Promise<void>` | `SessionRepository` |
 | **Page (editor)** | `src/application/page/GetPageEditorImage.ts` | `execute(pageId: PageId): Promise<PageEditorImageData \| null>` | `PageRepository`, `ImageRepository` |
-| **Page (editor)** | `src/application/page/SavePageAnnotations.ts` | `execute(pageId: PageId, annotationData: string \| null, renderedImageData?: string \| null): Promise<boolean>` | `PageRepository`, `ImageRepository` |
+| **Page (editor)** | `src/application/page/SavePageAnnotations.ts` | `execute(pageId: PageId, annotationData: string \| null, renderedImageData?: string \| null, files?: Record<string, EditorFilePayload>): Promise<boolean>` | `PageRepository`, `ImageRepository` |
 | **Page (custom)** | `src/application/page/CreateCustomPage.ts` | `execute(input: CreateCustomPageInput): Promise<CreateCustomPageResult>` | `PagePersistenceService`, `PageRepository` |
 | **Page (active)** | `src/application/page/CreateScreenshotPage.ts` | `execute(input: CreateScreenshotPageInput): Promise<CreateScreenshotPageResult>` | `CaptureAdapter`, `ImageProcessor`, `PagePersistenceService`, `PageRepository`, `RunOCR` |
 | **Capture (legacy, inactive)** | `src/application/capture/CaptureScreenshot.ts` | `execute(input: CaptureScreenshotInput): Promise<CaptureScreenshotOutput>` | `CaptureAdapter`, `ImageProcessor`, `CapturePersistenceService`, `CaptureRepository`, `RunOCR` |

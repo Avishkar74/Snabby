@@ -238,6 +238,29 @@ export const PageEditor: React.FC<PageEditorProps> = ({ pageId, onClose }) => {
     };
   }, [pageId, messageBus]);
 
+  // ─── 2-second OCR health/retry for the actively edited page ─────────────
+  // Calls GET_PAGE_OCR every ~2 seconds while the editor is open.
+  // The service worker's GET_PAGE_OCR handler already triggers single-flight
+  // auto-healing OCR if OCR is missing or stale — completely non-blocking.
+  // RunOCR.inFlightJobs prevents duplicate jobs for the same (pageId, imageId).
+  useEffect(() => {
+    if (!pageId) return;
+
+    const intervalId = setInterval(() => {
+      // Fire-and-forget: never await, never block editor interaction.
+      messageBus.request({
+        type: 'GET_PAGE_OCR',
+        pageId,
+      } as any).catch(() => {
+        // Ignore failures — this is a best-effort health check only.
+      });
+    }, 2000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [pageId, messageBus]);
+
   const handleClose = useCallback(() => {
     // Proactively commit any in-flight text editing by blurring active element before unmounting
     try {

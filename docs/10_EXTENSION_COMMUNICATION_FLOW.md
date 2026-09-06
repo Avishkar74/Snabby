@@ -788,24 +788,49 @@ The following implementation details are finalized:
 
 ---
 
-# 29. Page Editor Commands
+# 29. Page Editor and OCR Commands
 
-The Page Editor introduces two dedicated commands between the React UI and Service Worker:
+The Page Editor, Lightbox Preview, and OCR subsystem communicate via the following dedicated commands and broadcast events between the React UI and Service Worker:
 
 ### `GET_PAGE_EDITOR_IMAGE`
 - **Direction**: React UI ──► Service Worker
-- **Purpose**: Retrieves original screenshot base64 Data URL and existing `annotationData` for initializing Excalidraw.
+- **Purpose**: Retrieves original screenshot base64 Data URL, image dimensions, existing `annotationData`, and stored editor image files for initializing Excalidraw.
 - **Handler**: `GetPageEditorImage` use case.
 
 ### `SAVE_PAGE_ANNOTATIONS`
 - **Direction**: React UI ──► Service Worker
-- **Purpose**: Persists serialized vector `annotationData` and the newly rendered bounded image Data URL (`renderedImageData`).
-- **Handler**: `SavePageAnnotations` use case. Triggers `SESSION_UPDATED` broadcast to refresh UI thumbnails.
+- **Payload**: `{ type: 'SAVE_PAGE_ANNOTATIONS', pageId, annotationData, renderedImageData?, files? }`
+- **Purpose**: Persists serialized vector `annotationData`, any added local image files (`files`), and the newly rendered composited image Data URL (`renderedImageData`).
+- **Non-Blocking Architecture**:
+  1. Persists the new composited `ImageAsset` and updates `page.renderedImageId`.
+  2. Deletes the previous rendered image asset from IndexedDB.
+  3. Broadcasts `SESSION_UPDATED` to refresh side panel previews.
+  4. Returns `{ success: true }` immediately so the UI editor closes without waiting for OCR.
+  5. Schedules asynchronous background OCR on the composited `ImageAsset`.
 
-### `CREATE_CUSTOM_PAGE`
+### `GET_PAGE_OCR`
+- **Direction**: React UI (LightboxPreview) ──► Service Worker
+- **Payload**: `{ type: 'GET_PAGE_OCR', pageId: string }`
+- **Response**: `{ success: boolean, data: { ocrResult: OCRResultData | null, currentRenderedImageId: string | null } }`
+- **Non-Blocking Auto-Healing**:
+  - Validates OCR freshness against `page.effectiveRenderedImageId`.
+  - If OCR is missing or stale (`processedImageId !== page.effectiveRenderedImageId`), kicks off or reuses background OCR asynchronously via single-flight deduplication.
+  - Immediately returns `{ success: true, data: { ocrResult: null, currentRenderedImageId } }` without awaiting OCR completion, allowing the preview to open instantly.
+
+### `GET_ALL_THUMBNAILS`
 - **Direction**: React UI ──► Service Worker
-- **Purpose**: Generates and persists a blank white A4 custom page (`PageType.CUSTOM`) at an optional target index.
-- **Handler**: `CreateCustomPage` use case. Triggers `SESSION_UPDATED` broadcast to refresh UI thumbnails.
+- **Response**: List of page previews including `effectiveRenderedImageId`.
+- **Status Calculation**: Evaluates `isFresh = ocrResult && ocrResult.processedImageId === p.effectiveRenderedImageId`. Accurately reports `PROCESSING`, `COMPLETED`, or `FAILED` based on whether fresh OCR exists for the currently displayed rendered image.
+
+### `CHECK_OCR_STATUS`
+- **Direction**: React UI (PDF Export Modal) ──► Service Worker
+- **Response**: `{ success: true, data: { pendingCount: number, totalCount: number } }`
+- **Freshness Contract**: Pages are counted as complete only if fresh completed OCR exists for `page.effectiveRenderedImageId`. Un-edited blank custom pages do not require OCR.
+
+### Broadcast Events
+- **`OCR_COMPLETED`**: Broadcast to all extension contexts when background OCR finishes. If the image was superseded by newer edits while OCR was in flight, the broadcast is suppressed.
+- **`OCR_FAILED`**: Broadcast when OCR encounters an error, carrying `{ captureId, error }`.
+- **`SESSION_UPDATED`**: Broadcast whenever captures are added, deleted, reordered, or edited.
 
 ---
 

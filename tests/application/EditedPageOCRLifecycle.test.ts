@@ -9,7 +9,7 @@ import type { PageId, ImageId, SessionId } from '../../src/domain/common/ids.ts'
 import { createPageId, createImageId } from '../../src/domain/common/ids.ts';
 import { PdfLibPDFService, resolveEffectiveImageId } from '../../src/infrastructure/pdf/PdfLibPDFService.ts';
 
-function assert(condition: boolean, message: string) {
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(`Assertion failed: ${message}`);
   }

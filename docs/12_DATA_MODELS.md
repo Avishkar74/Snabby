@@ -95,20 +95,28 @@ Page
 1. **`effectiveRenderedImageId` Getter**:
    ```typescript
    public get effectiveRenderedImageId(): ImageId {
-     if (this.type === PageType.CUSTOM) {
-       return this.renderedImageId!;
-     }
-     return this.renderedImageId ?? (this.imageId as ImageId);
+     return (this.renderedImageId ?? this.imageId) as ImageId;
    }
    ```
-   Dynamically resolves the image ID to use for visual display. Prefers `renderedImageId` if present; falls back to `imageId`.
+   Dynamically resolves the active visual image ID to use for visual display, preview overlays, and OCR processing. Prefers `renderedImageId` if present; falls back to original `imageId`.
 
-2. **Annotation Mutation (`updateAnnotations`)**:
+2. **`resolveEffectiveImageId(page)` Helper**:
+   In addition to the class getter, `resolveEffectiveImageId(page: Page | IPageProps): ImageId | undefined` is exported for consumer modules (such as PDF generation) to safely resolve effective image IDs across both `Page` class instances and plain deserialized objects where prototype getters may not be attached:
+   ```typescript
+   export function resolveEffectiveImageId(page: Page | IPageProps): ImageId | undefined {
+     if ('effectiveRenderedImageId' in page && typeof page.effectiveRenderedImageId === 'string' && page.effectiveRenderedImageId) {
+       return page.effectiveRenderedImageId;
+     }
+     return (page.renderedImageId ?? page.imageId) ?? undefined;
+   }
+   ```
+
+3. **Annotation Mutation (`updateAnnotations`)**:
    Returns a new immutable `Page` instance with updated `annotationData`, updated `renderedImageId`, and `version` incremented by 1.
 
-3. **Page Type Validations**:
+4. **Page Type Validations**:
    - `SCREENSHOT`: Must have non-null `imageId`.
-   - `CUSTOM`: Must have `imageId = null` and non-null `renderedImageId`.
+   - `CUSTOM`: Must have at least one of `imageId` or `renderedImageId`.
 
 Conceptually:
 
@@ -243,7 +251,7 @@ This is stored in a separate IndexedDB object store named `images`.
 
 # 9. OCRResult
 
-OCR represents text extracted from a specific image.
+OCR represents text extracted from a specific image version.
 
 ```text
 OCRResult
@@ -271,6 +279,19 @@ OCRResult {
     processedImageId?: ImageId
 }
 ```
+
+### Relationship Between Image IDs and OCR Freshness:
+
+- **`page.imageId`**: Durable pointer to the raw unedited screenshot in `images`.
+- **`page.renderedImageId`**: Pointer to the latest flattened composited image (`screenshot + drawings + text + added images`) in `images`.
+- **`page.effectiveRenderedImageId`**: The active image to display (`renderedImageId ?? imageId`).
+- **`ocrResult.processedImageId`**: Records the exact image ID processed by the OCR job.
+
+**Strict Freshness Contract**:
+$$\text{ocrResult.processedImageId} === \text{page.effectiveRenderedImageId}$$
+- If a page has never been edited, `processedImageId === page.imageId`.
+- When annotations/images are saved, `page.effectiveRenderedImageId` switches to a new `renderedImageId`.
+- Prior to fresh OCR completing for that new image, `ocrResult.processedImageId !== page.effectiveRenderedImageId`. The existing OCR is strictly regarded as **stale** and rejected by both Lightbox Preview and PDF text layer generation.
 
 ---
 

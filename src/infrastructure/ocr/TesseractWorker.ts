@@ -43,7 +43,9 @@ export class TesseractWorker {
         return worker;
       } catch (err: unknown) {
         this.initializingPromise = null;
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error
+          ? (err.message || String(err))
+          : (err != null ? String(err) : 'unknown initialization error');
         throw new Error(`Tesseract initialization failed: ${msg}`);
       }
     })();
@@ -139,7 +141,9 @@ export class TesseractWorker {
         words: mappedWords
       };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error
+        ? (err.message || String(err))
+        : (err != null ? String(err) : 'unknown recognition error');
       throw new Error(`Tesseract recognition failed: ${msg}`);
     }
   }

@@ -434,14 +434,38 @@ React → Service Worker
 {
   success: true,
   data: {
-    captures: CapturePreview[]
+    pages: Array<{
+      id: string,
+      sessionId: string,
+      imageId: string | null,
+      effectiveRenderedImageId: string,
+      status: "NOT_STARTED" | "PROCESSING" | "COMPLETED" | "FAILED",
+      order: number,
+      createdAt: number,
+      imageUrl: string // Base64 data URL
+    }>
   }
 }
 ```
 
-The current implementation returns thumbnail information from the current session. 
+### Status & Freshness Rules
+The `status` field strictly accounts for OCR freshness relative to the currently displayed rendered image:
+```typescript
+const isFresh =
+  ocrResult &&
+  (ocrResult.processedImageId === p.effectiveRenderedImageId ||
+    (!ocrResult.processedImageId && p.effectiveRenderedImageId === p.imageId));
 
-The v1 implementation will load image data through the IndexedDB image repository.
+if (p.status === 'PROCESSING') {
+  status = 'PROCESSING';
+} else if (isFresh) {
+  status = ocrResult.status;
+} else if (p.status === 'FAILED') {
+  status = 'FAILED';
+} else {
+  status = 'NOT_STARTED';
+}
+```
 
 ---
 
@@ -475,13 +499,10 @@ React → Service Worker
 }
 ```
 
-The current implementation already exposes this concept by counting screenshots without completed/attempted OCR. 
-
-### Important UI rule
-
-This information is **not displayed as OCR progress**.
-
-It is only used when determining whether the download decision dialog is necessary.
+### Freshness Calculation Contract
+- Blank un-edited custom pages do not require OCR and count as completed.
+- Pages require fresh OCR: `ocr.processedImageId === page.effectiveRenderedImageId`. If OCR is missing or points to an older image version, it is counted as pending.
+- This information is used by `usePdfExporter` to present the decision dialog (Export now vs Wait for OCR vs Cancel).
 
 ---
 
@@ -509,17 +530,13 @@ React → Service Worker
 skipPendingOcr = false
 ```
 
-Wait for/run pending OCR before generating the PDF.
+Wait for pending OCR before generating the PDF.
 
 ```text
 skipPendingOcr = true
 ```
 
-Generate immediately and omit OCR only for captures whose OCR is not available.
-
-Already completed OCR is still included.
-
-The existing implementation already uses `skipPendingOcr` for this behavior. 
+Generate immediately and omit OCR only for pages whose OCR is not available or not fresh. Already completed fresh OCR is included.
 
 ### Success
 
@@ -606,8 +623,12 @@ Queries the persisted OCR result and effective rendered image ID for a specific 
 }
 ```
 
-### Auto-Healing Contract
-If the requested page exists in IndexedDB but its OCR result is missing or contains an empty words array (`words.length === 0`), the Service Worker automatically initiates background OCR computation via `RunOCR` and broadcasts `OCR_COMPLETED` when ready.
+### Non-Blocking Auto-Healing Contract
+If the requested page exists in IndexedDB but its OCR result is missing or stale (`processedImageId !== page.effectiveRenderedImageId`):
+1. The Service Worker starts or reuses single-flight background OCR asynchronously for `page.effectiveRenderedImageId`.
+2. The Service Worker immediately returns `{ success: true, data: { ocrResult: null, currentRenderedImageId: page.effectiveRenderedImageId } }` without awaiting OCR processing.
+3. The Lightbox Preview displays the image normally without an overlay.
+4. When background OCR finishes, the Service Worker broadcasts `OCR_COMPLETED`, prompting the preview to refresh and display the newly computed selectable text overlay.
 
 ---
 
@@ -1417,7 +1438,8 @@ This is deliberate.
     width: number,        // Original image width in pixels
     height: number,       // Original image height in pixels
     mimeType: string,     // 'image/png' or 'image/jpeg'
-    annotationData: string | null // Serialized Excalidraw element JSON string if present
+    annotationData: string | null, // Serialized Excalidraw element JSON string if present
+    files?: Record<string, { id: string; dataURL: string; mimeType: string }> // Stored editor image files
   }
 }
 ```
@@ -1445,6 +1467,7 @@ This is deliberate.
   pageId: string,
   annotationData: string | null, // Serialized Excalidraw vector elements JSON
   renderedImageData?: string | null, // Base64 data URL of bounded composite image
+  files?: Record<string, { id: string; dataURL: string; mimeType: string }>, // Added editor images
   requestId?: string
 }
 ```
@@ -1468,8 +1491,13 @@ This is deliberate.
 }
 ```
 
-#### Side Effects
-- Upon successful execution with `renderedImageData`, Service Worker broadcasts `SESSION_UPDATED` event to all UI contexts to trigger thumbnail refreshes.
+#### Execution & Side Effects
+1. Persists vector elements and added local image files to IndexedDB.
+2. Persists the newly composited bounded image as an `ImageAsset` and updates `page.renderedImageId`.
+3. Deletes old rendered image assets to prevent leaks.
+4. Broadcasts `SESSION_UPDATED` event to all UI contexts.
+5. Returns `{ success: true }` immediately to the editor UI (non-blocking save).
+6. Asynchronously invokes `RunOCR` in the background for `page.effectiveRenderedImageId` with persistence-time freshness validation.
 
 ---
 

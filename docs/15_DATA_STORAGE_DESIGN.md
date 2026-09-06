@@ -335,7 +335,9 @@ ocrResults
     ├── fullText
     ├── words
     ├── imageWidth
-    └── imageHeight
+    ├── imageHeight
+    ├── errorDetails?
+    └── processedImageId?  (ImageId of the exact ImageAsset processed by OCR)
 ```
 
 The existing OCR implementation produces word-level bounding boxes and image dimensions, which are required by the PDF text-layer implementation. 
@@ -977,28 +979,50 @@ This represents the asynchronous nature of OCR without making the capture itself
 
 # 39. Storage Lifecycle
 
+### Initial Capture Lifecycle:
 ```text
 Capture
    ↓
-Create Image
+Create Image (ImageAsset in images store)
    ↓
-Create Capture
+Create Capture / Page (captures store)
    ↓
-OCR Processing
+Background OCR Processing (on page.imageId)
    ↓
-Create OCR Result
+Create OCR Result (processedImageId = page.imageId)
    ↓
-PDF Generation
+PDF Generation (Fresh OCR only)
    ↓
 Download
    ↓
 User Deletes Capture
    ↓
-Delete OCR
+Delete OCR + Delete Images + Delete Capture
+```
+
+### Page Edit Storage Lifecycle:
+```text
+User Edits Page (Drawings / Text / Added Local Images)
    ↓
-Delete Image
+Save Page Annotations (SAVE_PAGE_ANNOTATIONS)
    ↓
-Delete Capture
+Generate Bounded Composited Image (screenshot + drawings + text + added images)
+   ↓
+Store New Rendered ImageAsset (new renderedImageId in images store)
+   ↓
+Delete Old Rendered ImageAsset (if effectiveRenderedImageId !== page.imageId)
+   ↓
+Store Added Local Images (ImageAsset per fileId in images store)
+   ↓
+Update Page Record (renderedImageId, annotationData, version++)
+   ↓
+Broadcast SESSION_UPDATED & Return Success Immediately to UI
+   ↓
+Background OCR Execution (on page.effectiveRenderedImageId)
+   ↓
+Persistence-Time Freshness Validation (verify page not superseded)
+   ↓
+Save OCRResult (processedImageId = page.effectiveRenderedImageId)
 ```
 
 ---
@@ -1060,6 +1084,7 @@ The following persistence decisions are now finalized:
 | Vector Annotations                 | `Page.annotationData` (Excalidraw JSON)  |
 | Rendered Images                    | `Page.renderedImageId` (`ImageAsset`)    |
 | OCR results                        | IndexedDB                                |
+| OCR Freshness Tracking             | `OCRResult.processedImageId === Page.effectiveRenderedImageId` |
 | Generated PDF persistence          | **No**                                   |
 | Image/OCR separation               | **Yes**                                  |
 | Session → Pages                    | 1:N                                      |

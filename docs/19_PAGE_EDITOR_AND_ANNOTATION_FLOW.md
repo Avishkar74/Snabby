@@ -37,28 +37,39 @@ User Draws / Edits Canvas (Debounced onChange)
         ▼
 flushPendingSave Execution
         │
-        ├── 1. Serialize user elements (excluding screenshot image element) ──► Page.annotationData
+        ├── 1. Serialize user elements (excluding screenshot background) ──────► Page.annotationData
         │
         ├── 2. Render bounded composited image ────────────────────────────────► renderBoundedPageImage
-        │      • Export Excalidraw elements to transparent canvas (exportWithDarkMode: true)
+        │      • Export Excalidraw elements & added images (exportWithDarkMode: true)
         │      • Composite on top of raw screenshot (width × height bounds)
         │      • Crop anything drawn outside screenshot bounds
         │
-        └── 3. Send SAVE_PAGE_ANNOTATIONS message ───────────────────────────► Service Worker
+        └── 3. Send SAVE_PAGE_ANNOTATIONS message (with files map) ──────────► Service Worker
                                                                                     │
                                                                                     ▼
                                                                            SavePageAnnotations
                                                                                     │
                                                                                     ├── Persist annotationData
-                                                                                    ├── Store new ImageAsset
+                                                                                    ├── Store new composited ImageAsset
+                                                                                    ├── Persist added local image files
                                                                                     ├── Delete old renderedImageId
-                                                                                    └── Update Page.renderedImageId
+                                                                                    ├── Update Page.renderedImageId
+                                                                                    ├── Broadcast SESSION_UPDATED
+                                                                                    └── Return success immediately (non-blocking)
+        │                                                                           │
+        ▼                                                                           ▼
+UI Closes Editor / Updates Previews                                        Async Background OCR (RunOCR)
+        │                                                                           │
+        │                                                                           ├── OCR on exact composited image
+        │                                                                           ├── Single-flight deduplication
+        │                                                                           ├── Persistence-time freshness check
+        │                                                                           ├── Persist OCRResult (processedImageId)
+        │                                                                           └── Broadcast OCR_COMPLETED
+        ▼                                                                           │
+Preview Refreshes Selectable Overlay ◄──────────────────────────────────────────────┘
         │
         ▼
-Broadcast SESSION_UPDATED ──► UI Refreshes (Side Panel & Lightbox use page.effectiveRenderedImageId)
-        │
-        ▼
-PDF Generation ──────────────► PdfLibPDFService loads page.effectiveRenderedImageId
+PDF Generation ──► PdfLibPDFService loads page.effectiveRenderedImageId (Fresh OCR text layer only)
 ```
 
 ---
@@ -184,15 +195,18 @@ To prevent accidental unmounting or modal dismissal during drawing:
 6. Draws the exported Excalidraw canvas at offset `(minX - EXCALIDRAW_EXPORT_PADDING, minY - EXCALIDRAW_EXPORT_PADDING)`. (Excalidraw applies a default 10px export padding).
 7. Exports the final canvas as a high-quality JPEG/PNG base64 Data URL (`toDataURL(mimeType, 0.92)`).
 
-### Step 5: Service Worker Persistence (`SavePageAnnotations`)
-1. Service worker receives `SAVE_PAGE_ANNOTATIONS`.
+### Step 5: Service Worker Persistence & Non-Blocking OCR (`SavePageAnnotations`)
+1. Service worker receives `SAVE_PAGE_ANNOTATIONS` with `pageId`, `annotationData`, `renderedImageData`, and `files`.
 2. Converts `renderedImageData` base64 string to a binary `Blob`.
-3. Creates a new `ImageAsset` with a freshly generated `ImageId` (`createImageId()`), inheriting `width` and `height` from the original screenshot asset.
+3. Creates a new `ImageAsset` with a freshly generated `ImageId` (`createImageId()`), inheriting dimensions from the original screenshot asset.
 4. Saves new `ImageAsset` to IndexedDB `images` store via `ImageRepository.save()`.
 5. If an old `renderedImageId` exists (and is not equal to `page.imageId`), deletes the previous rendered `ImageAsset` from IndexedDB via `ImageRepository.delete()`.
-6. Updates `Page` entity via `page.updateAnnotations(annotationData, newImageId)` (incrementing `version`).
-7. Saves updated `Page` to IndexedDB `pages` store via `PageRepository.save()`.
-8. Broadcasts `SESSION_UPDATED` event to all UI contexts.
+6. Persists any added local image files to `ImageRepository`.
+7. Updates `Page` entity via `page.updateAnnotations(annotationData, newImageId)` (incrementing `version`).
+8. Saves updated `Page` to IndexedDB `pages` store via `PageRepository.save()`.
+9. Broadcasts `SESSION_UPDATED` event to all UI contexts.
+10. **Returns `{ success: true }` immediately** to the editor UI (non-blocking save).
+11. Schedules asynchronous background OCR on the exact composited `ImageAsset`: `runOCR.execute({ page, image: compositedImageAsset })`.
 
 ---
 
@@ -201,32 +215,60 @@ To prevent accidental unmounting or modal dismissal during drawing:
 | File | Subsystem | Responsibility |
 | ---- | --------- | -------------- |
 | `src/features/page-editor/components/PageEditor.tsx` | UI Feature | Main React modal component. Manages Excalidraw mounting, `initialData` memoization, scene fit, debounced auto-save, ESC shortcut, and overlay backdrop containment. |
-| `src/features/page-editor/utils/renderBoundedPageImage.ts` | UI Utility | Bounded canvas compositing pipeline. Exports Excalidraw elements, offsets padding, draws raw screenshot background, and crops output to original dimensions. |
+| `src/features/page-editor/utils/renderBoundedPageImage.ts` | UI Utility | Bounded canvas compositing pipeline. Exports Excalidraw elements & added images, offsets padding, draws raw screenshot background, and crops output to original dimensions. |
 | `src/features/page-editor/types/pageEditor.types.ts` | UI Types | Type definitions for `PageEditorProps`. |
 | `src/features/page-editor/index.ts` | UI Module | Barrel export for `PageEditor` component. |
-| `src/application/page/GetPageEditorImage.ts` | Application Use Case | Fetches `Page` and raw screenshot `ImageAsset` for initializing the editor. |
-| `src/application/page/SavePageAnnotations.ts` | Application Use Case | Handles saving annotation JSON, persisting new rendered `ImageAsset`, cleaning up old rendered images, and updating the `Page` entity. |
+| `src/application/page/GetPageEditorImage.ts` | Application Use Case | Fetches `Page`, raw screenshot `ImageAsset`, and editor files for initializing the editor. |
+| `src/application/page/SavePageAnnotations.ts` | Application Use Case | Handles saving annotation JSON and local editor files, persisting new rendered `ImageAsset`, cleaning up old rendered images, and updating the `Page` entity. |
 | `src/domain/page/Page.ts` | Domain Model | Encapsulates page state (`annotationData`, `renderedImageId`), rules for page types, and `effectiveRenderedImageId` resolution getter. |
 
 ---
 
-## 8. Version-Aware OCR & Retry Safety Lifecycle
+## 8. Version-Aware OCR & Concurrency Architecture
 
-Snabby enforces a **version-aware OCR lifecycle** that automatically re-runs OCR when page content is edited, while strictly preventing infinite OCR loops or background retry storms:
+Snabby enforces a strict **version-aware OCR lifecycle** ensuring that OCR always corresponds to the latest visual state of the page, with complete protection against race conditions and redundant execution:
 
-1. **Visual Version Association (`OCRResult.processedImageId`)**:
-   - `OCRResult` persists the exact `processedImageId` (matching `page.effectiveRenderedImageId`) for which OCR was performed.
-   - An OCR result is considered **up-to-date** if `ocrResult.processedImageId === page.effectiveRenderedImageId`.
+1. **Final Rendered Image as the OCR Source**:
+   - OCR is associated with the exact image currently represented by `page.effectiveRenderedImageId`.
+   - For edited pages, `renderBoundedPageImage` generates a single flattened visual image containing:
+     $$\text{Original Screenshot} + \text{Vector Drawings} + \text{Canvas Text} + \text{Added Local Images}$$
+   - Background OCR runs on this exact composited `ImageAsset`.
+   - **Text Inside Added Images**: Any text contained within uploaded local images (diagrams, labels, screenshots) is OCR'd and becomes selectable because OCR processes the composited image, not just the original screenshot or vector text nodes.
 
-2. **Editing & Stale OCR Invalidation**:
-   - When a user edits a page (screenshot or custom page) and saves, `SavePageAnnotations` creates a new rendered `ImageAsset` (`newImageId`).
-   - `SavePageAnnotations` triggers `RunOCR` asynchronously on `newImageId`.
-   - `RunOCR` processes the new rendered image, stores the resulting `OCRResult` with `processedImageId = newImageId`, and updates `Page.status`.
+2. **Strict Freshness Invariant**:
+   - OCR data is valid **only** when:
+     $$\text{ocrResult.processedImageId} === \text{page.effectiveRenderedImageId}$$
+   - Stale OCR (where `processedImageId` does not match the active rendered image) is strictly barred from:
+     - Rendering selectable OCR overlays in Lightbox Preview.
+     - Generating searchable PDF text layers in `PdfLibPDFService`.
+     - Fulfilling OCR completion status checks in `CHECK_OCR_STATUS` and thumbnail status in `GET_ALL_THUMBNAILS`.
 
-3. **Blank Page & Scribble/No-Text Safety**:
-   - **Blank Custom Pages**: Newly created un-edited custom pages (`PageType.CUSTOM` without `renderedImageId`) skip OCR processing entirely (0 pending OCRs).
-   - **Scribbles / Non-Text Content**: When OCR processes an image containing only scribbles, shapes, or diagrams, Tesseract finishes with `status: COMPLETED` and `fullText: ""`. This is marked as **COMPLETED for this image version** and will **never be retried automatically**.
-   - **Genuine Failures**: System failures finish as `status: FAILED` with `processedImageId = currentImageId`. They are marked as failed for that visual version and will not loop indefinitely.
+3. **Non-Blocking Save Lifecycle**:
+   - The user does **not wait for OCR** before an annotation edit save succeeds.
+   - `SAVE_PAGE_ANNOTATIONS` commits the new image asset, updates the page, broadcasts `SESSION_UPDATED`, and returns success immediately.
+   - OCR continues asynchronously in the background.
+
+4. **Preview Behavior During OCR**:
+   - When preview opens for an edited page, it checks if fresh OCR exists (`processedImageId === activeRenderedImageId`).
+   - If OCR is pending or stale, the preview displays the updated image normally with no overlay. Stale OCR coordinates never appear over the new image.
+   - When background OCR finishes, the Service Worker broadcasts `OCR_COMPLETED`.
+   - The preview receives the event, refreshes its OCR data via `GET_PAGE_OCR`, and mounts the fresh selectable overlay seamlessly.
+
+5. **Non-Blocking Auto-Healing (`GET_PAGE_OCR`)**:
+   - If `GET_PAGE_OCR` is called and OCR is missing or stale, the Service Worker triggers or reuses background OCR via single-flight deduplication.
+   - It returns `{ success: true, data: { ocrResult: null, currentRenderedImageId } }` immediately without blocking the preview.
+
+6. **Concurrency & Race-Condition Guarantees (`RunOCR`)**:
+   - **Single-Flight Deduplication**: `RunOCR` tracks active jobs in `inFlightJobs: Map<string, Promise<OCRResult>>` keyed by `${page.id}:${image.id}`. Concurrent callers reuse the existing in-flight operation.
+   - **Persistence-Time Freshness Validation**: In rapid consecutive edits:
+     ```text
+     Edit A saved ──► Image A stored ──► OCR A starts
+     User edits again ──► Edit B saved ──► Image B stored ──► page.effectiveRenderedImageId = B
+     OCR A finishes later
+     RunOCR re-reads latest page: page.effectiveRenderedImageId (B) !== image A
+     Outdated OCR A result is discarded (suppresses OCR_COMPLETED broadcast)
+     ```
+   - Slow out-of-order completions never overwrite OCR for newer rendered images.
 
 ---
 

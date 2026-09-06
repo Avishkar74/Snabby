@@ -39,12 +39,12 @@ The responsibilities are split between the application use case and the infrastr
   - Returns the generated PDF `Blob`.
 
 - **PdfLibPDFService (Infrastructure Layer)**:
-  - Receives the loaded `Session` and ordered `Capture`s.
-  - Sequentially loops over each capture.
-  - Loads the image asset from `ImageRepository` using `page.effectiveRenderedImageId` (which resolves to `renderedImageId` if annotated, or original `imageId` otherwise).
-  - Loads the `OCRResult` (if available) from `OCRRepository`.
-  - Performs scaling and coordinate translation.
-  - Employs `pdf-lib` to create pages, embed graphics, overlay transparent OCR text layers, and compile the final PDF `Blob`.
+  - Receives the loaded `Session` and ordered `Page`s/`Capture`s.
+  - Sequentially loops over each page.
+  - Loads the image asset from `ImageRepository` using `resolveEffectiveImageId(page)` (which resolves to `page.effectiveRenderedImageId ?? (page.renderedImageId ?? page.imageId)`).
+  - Validates OCR Freshness: Checks whether `OCRResult` exists, `status === COMPLETED`, and `processedImageId === effectiveImageId`.
+  - Performs line clustering, word spacing, and horizontal scale calibration for pixel-accurate text selection.
+  - Employs `pdf-lib` to create pages, embed graphics, overlay transparent OCR text layers for fresh OCR, and compile the final PDF `Blob`. If OCR is missing or stale, renders the image normally without an invalid text layer (no OCR retries).
 
 ---
 
@@ -808,15 +808,29 @@ OCR bounding boxes `(x_img, y_img, w_img, h_img)` (with top-left origin) are map
 - `x_pdf = imgLeft + (x_img * scale)`
 - `y_pdf = imgBottom + (imageHeight - y_img - h_img) * scale`
 
-### Decision 9 — OCR Text Overlay Strategy
-Text is drawn word-by-word on top of the screenshot using `pdf-lib`'s `drawText` with **`opacity: 0`** (completely invisible, but selectable and searchable). Font is embedded as **`StandardFonts.Helvetica`** via `pdfDoc.embedFont(StandardFonts.Helvetica)`. Font size is set to `h_pdf` (the transformed word height) to align text geometry with the screenshot.
+### Decision 9 — Line Clustering & OCR Text Overlay Strategy
+Text is drawn over the embedded screenshot using invisible PDF text operators (`3 Tr` invisible text render mode or `opacity: 0` text rendering with custom text matrices):
+- Valid non-empty words with positive dimensions are filtered from the OCR result.
+- Words are sorted and clustered into visual lines based on vertical overlap.
+- For each line, words are rendered left-to-right with exact baseline positioning. When lines contain multiple words, word spacing (`Tw`) or horizontal scaling (`Tz`) calibrates letterbox alignment so text selection matches the visual screenshot perfectly.
+- Font is embedded as **`StandardFonts.Helvetica`** via `pdfDoc.embedFont(StandardFonts.Helvetica)`. Text that cannot be encoded by Helvetica is filtered out gracefully.
 
 ### Decision 9.1 — PDF Document Title
 The generated PDF document title is set to `session.name` via `pdfDoc.setTitle(session.name)` for metadata attribution.
 
-### Decision 10 — OCR Status & skipPendingOcr Behavior
+### Decision 10 — OCR Freshness & skipPendingOcr Behavior
+- **Strict Freshness Invariant**: The PDF text layer is generated **only** when:
+  ```typescript
+  ocrResult !== null &&
+  ocrResult.status === OCRStatus.COMPLETED &&
+  ocrResult.processedImageId === effectiveImageId
+  ```
+- **Fallback Without Stale Text**: If OCR is missing, processing, failed, or stale (`processedImageId !== effectiveImageId`):
+  - The PDF page is generated with the rendered image normally.
+  - The invalid or outdated text layer is completely omitted.
+  - **No OCR Retries**: The PDF generator does **not** trigger OCR retries or auto-healing during PDF export; it uses the durable state as-is.
 - **`skipPendingOcr = false`**: The `GeneratePDF` use case polls `OCRRepository.findByCaptureId()` every **500ms** up to **60 retries** (= **30 seconds max**) until all captures in the session have a terminal OCR state (`COMPLETED` or `FAILED`). If a capture's OCR record doesn't yet exist or its status is `PENDING`/`PROCESSING`, the poller waits. After 60 retries the timeout expires and generation proceeds with whatever state is available.
-- **`skipPendingOcr = true`**: The use case compiles the PDF immediately without any polling. Captures with completed OCR get the selectable overlay; captures with pending or failed OCR are rendered as image-only pages.
+- **`skipPendingOcr = true`**: The use case compiles the PDF immediately without any polling. Captures with fresh completed OCR get the selectable overlay; captures with pending, failed, or stale OCR are rendered as image-only pages.
 
 ### Decision 11 — Memory Strategy
 Captures are processed one at a time. The image binary is loaded, embedded into the PDF document, and intermediate ArrayBuffer/Blob resources are immediately released for garbage collection.
@@ -827,7 +841,7 @@ Captures are processed one at a time. The image binary is loaded, embedded into 
 | :--- | :--- | :--- | :--- |
 | **Application Use Case** | `src/application/pdf/GeneratePDF.ts` | Orchestrates capture loading, OCR status polling, and PDFService invocation. | `SessionRepository`, `CaptureRepository`, `OCRRepository`, `PDFService` |
 | **Application Interface** | `src/application/interfaces/services/PDFService.ts` | Service boundary contract for PDF generation. | `Session`, `Capture` |
-| **Infrastructure Service** | `src/infrastructure/pdf/PdfLibPDFService.ts` | Implements `PDFService` using `pdf-lib`, handles image embedding and invisible text overlay. | `pdf-lib`, `ImageRepository`, `OCRRepository`, `CoordinateMapper` |
+| **Infrastructure Service** | `src/infrastructure/pdf/PdfLibPDFService.ts` | Implements `PDFService` using `pdf-lib`, enforces OCR freshness validation, line clustering, and text layer injection. | `pdf-lib`, `ImageRepository`, `OCRRepository`, `CoordinateMapper` |
 | **Infrastructure Coordinate Mapper** | `src/infrastructure/pdf/coordinate/CoordinateMapper.ts` | Pure math utility for top-left image to bottom-left PDF coordinate conversion. | None |
 
 ---
@@ -838,58 +852,68 @@ Captures are processed one at a time. The image binary is loaded, embedded into 
                     SESSION
                        │
                        ▼
-               Ordered Captures
+                Ordered Pages
                        │
                        ▼
-                 Create PDF
+                  Create PDF
                        │
                        ▼
-              ┌────────────────┐
-              │ For each Capture│
-              └───────┬────────┘
-                      │
-              ┌───────┴────────┐
-              ▼                ▼
-           Load Image       Load OCR
-              │                │
-              └───────┬────────┘
-                      ▼
-                 Create Page (imageWidth + 20, imageHeight + 20)
-                      │
-                      ▼
-               Draw Screenshot (offset 10, 10)
-                      │
-                      ▼
-               OCR Available?
-                 /       \
-               Yes        No
-                │          │
-                ▼          │
-        Transform OCR      │
-         Coordinates       │
-                │          │
-                ▼          │
-        Add Invisible Text │
-                │          │
-                └────┬─────┘
-                     ▼
-                 Next Capture
-                     │
-                     ▼
-                Finalize PDF
-                     │
-                     ▼
-                  PDF Blob
-                     │
-                     ▼
-               Download Flow
+               ┌────────────────┐
+               │ For each Page  │
+               └───────┬────────┘
+                       │
+               ┌───────┴────────┐
+               ▼                ▼
+        Resolve Effective     Load OCR
+        Image (resolve-      (findByCaptureId)
+        EffectiveImageId)       │
+               │                │
+               └───────┬────────┘
+                       ▼
+                  Create Page (imageWidth + 20, imageHeight + 20)
+                       │
+                       ▼
+                Draw Image (offset 10, 10)
+                       │
+                       ▼
+             Fresh Completed OCR?
+       (status === COMPLETED &&
+     processedImageId === effectiveId)
+                 /          \
+               Yes           No
+                │             │
+                ▼             │
+        Cluster Words into    │
+        Lines & Calibrate     │
+        Horizontal Scale      │
+                │             │
+                ▼             │
+        Add Invisible Text    │
+                │             │
+                └──────┬──────┘
+                       ▼
+                  Next Page
+                       │
+                       ▼
+                 Finalize PDF
+                       │
+                       ▼
+                   PDF Blob
+                       │
+                       ▼
+                Download Flow
 ```
 
-> **Core principle:** PDF generation combines the persisted screenshot and its OCR data without modifying either. The screenshot provides the visual page, while the OCR result provides the searchable text layer.
+> **Core principle:** PDF generation strictly enforces OCR freshness against `page.effectiveRenderedImageId`. If OCR is fresh, a pixel-aligned selectable text layer is embedded; if OCR is missing, processing, failed, or stale, the visual image is exported normally without generating an invalid or misaligned text layer.
 
+---
 
+## ARCHITECTURE UPDATE: Page-based PDF Flow & OCR Freshness
 
+The PDF pipeline operates on the `Page` entity and supports original screenshots, edited screenshots with vector drawings/added images, and custom pages.
+- **Image Resolution**: The PDF renderer uses `resolveEffectiveImageId(page)` to transparently load the latest visual version:
+  - If the page has been edited, `page.renderedImageId` is loaded.
+  - If unedited, `page.imageId` is loaded.
+- **OCR Freshness Verification**: The text layer is injected **only** if `ocrResult.processedImageId === resolveEffectiveImageId(page)`. For edited pages, this ensures that only OCR run against the final composited image is embedded in the PDF. Stale OCR from prior edits is safely ignored without halting or delaying PDF export.
+- **Zero Inline Retries**: PDF generation never initiates background OCR or blocks on OCR failures during rendering.
 
-## ARCHITECTURE UPDATE: Page-based PDF Flow
-
-The active PDF pipeline now works with the Page entity. The PDF rendering path conceptually uses page.effectiveRenderedImageId. This enables future support for original screenshots, edited screenshots, and custom pages. (Note: Custom pages and annotation UI are future work and not currently implemented in the UI).

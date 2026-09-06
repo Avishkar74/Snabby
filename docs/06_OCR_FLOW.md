@@ -2151,7 +2151,7 @@ All open questions from the initial design have been resolved. The final decisio
 | OCR language | English (`eng`) |
 | Worker reuse strategy | Singleton `TesseractWorker` reused across all OCR jobs per offscreen document session; never explicitly terminated |
 | Tesseract init options | `cacheMethod: 'none'`, `gzip: false`, `workerBlobURL: false` (CSP compliance) |
-| OCR concurrency | Serial queue (one job at a time) in `RunOCR.ts` |
+| OCR concurrency | Serial promise queue with single-flight deduplication per `(pageId:imageId)` in `RunOCR.ts` |
 | Image-to-DataURL conversion | `FileReader` (primary), chunked `arrayBuffer()` (fallback) in `TesseractOCRAdapter` |
 | OCR progress events | Not exposed to React UI — only terminal `OCR_COMPLETED` / `OCR_FAILED` events |
 | Request/response correlation | Handled by Chrome runtime message model (request/response per `chrome.runtime.sendMessage`) |
@@ -2237,49 +2237,158 @@ All open questions from the initial design have been resolved. The final decisio
 
 
 
-## ARCHITECTURE UPDATE: Page Migration
+## ARCHITECTURE UPDATE: Page Migration & Domain Integration
 
-- RunOCR now operates directly on the Page domain model.
-- OCR records remain associated with the existing OCR storage compatibility model (e.g., using captureId).
-- OCR is triggered asynchronously after screenshot persistence.
+- `RunOCR` operates directly on the `Page` domain model (`PageRepository` and `Page.effectiveRenderedImageId`).
+- `RunOCRInput` accepts `{ page?: Page; capture?: any; image: ImageAsset }` to seamlessly support both migrated Page instances and legacy capture references.
+- OCR records are stored in IndexedDB `ocrResults`, keyed by `captureId` (`page.id`).
+- For newly captured screenshots, OCR is triggered asynchronously immediately after screenshot persistence.
 
 ---
 
-## ARCHITECTURE UPDATE: Selectable OCR Text in Image Preview / Lightbox
+## ARCHITECTURE UPDATE: Edited-Page OCR Lifecycle & Concurrency Architecture
 
-### 1. Dual Consumers of OCR Data
-OCR word-level positional information is now utilized by two primary consumer subsystems:
-1. **PDF Generation**: Injects an invisible, searchable font text layer into generated PDF pages via `PdfLibPDFService`.
-2. **React UI Lightbox Preview**: Overlays a pixel-accurate, selectable text layer directly on the rendered screenshot in `LightboxPreview.tsx` via `OCRTextOverlay.tsx`.
-
-### 2. Tesseract.js Output & Word Extraction
-In Tesseract.js v5+/v7, calling `worker.recognize(dataUrl)` defaults to plain text output only unless `{ blocks: true }` is explicitly provided. Moreover, word objects are nested hierarchically within the AST:
-```text
-result.data.blocks[]
-  └── paragraphs[]
-        └── lines[]
-              └── words[] (text, confidence, bbox { x0, y0, x1, y1 })
+### 1. Final Composited Rendered Image as the Single Source of Truth
+For edited pages, OCR is bound to the exact visual composition currently represented by:
+```typescript
+page.effectiveRenderedImageId // (page.renderedImageId ?? page.imageId)
 ```
-`TesseractWorker.ts` explicitly invokes `worker.recognize(dataUrl, {}, { blocks: true, text: true })` and traverses the block hierarchy to extract every recognized word into normalized bounding boxes.
 
-### 3. Coordinate Transformation & Alignment Contract
-To align the selectable text layer over the dynamically sized `<img>` element in the lightbox:
-- `LightboxPreview` measures the visible image bounds via `getBoundingClientRect()` relative to its wrapper container.
-- `ResizeObserver` recalculates the rendered dimensions on image load, window resize, and layout changes.
-- `OCRTextOverlay` computes scaling ratios:
-  $$\text{scaleX} = \frac{\text{renderedRect.width}}{\text{imageWidth}}, \quad \text{scaleY} = \frac{\text{renderedRect.height}}{\text{imageHeight}}$$
-- Word spans are placed at:
-  $$\text{left} = \text{box.x} \times \text{scaleX}, \quad \text{top} = \text{box.y} \times \text{scaleY}$$
-  $$\text{width} = \text{box.width} \times \text{scaleX}, \quad \text{height} = \text{box.height} \times \text{scaleY}$$
-- Words are styled with `color: transparent` and native selection highlighting (`.wsn-ocr-word::selection { background: rgba(59, 130, 246, 0.45); color: transparent; }`).
+The post-edit lifecycle proceeds as follows:
+```text
+Original screenshot
+        ↓
+User edits page (drawings, vector text, shapes, or added local images)
+        ↓
+Final composited rendered image is generated
+(original screenshot + drawings + text + added images)
+        ↓
+New ImageAsset stored in IndexedDB (new renderedImageId)
+        ↓
+Previous rendered ImageAsset deleted (storage leak prevention)
+        ↓
+page.renderedImageId updated (page.effectiveRenderedImageId points to new image)
+        ↓
+SAVE_PAGE_ANNOTATIONS broadcasts SESSION_UPDATED & returns success immediately
+        ↓
+Background OCR runs asynchronously on the exact composited ImageAsset
+        ↓
+OCRResult.processedImageId === page.effectiveRenderedImageId
+```
+**Important**: Text inside added local images is fully recognized and selectable because OCR processes the complete, flattened composited visual image rather than solely the original screenshot or isolated Excalidraw text nodes.
 
-### 4. Version Matching Contract
-- When an image is edited in the Page Editor, its visual display updates to `page.renderedImageId`.
-- The OCR text overlay is **only** displayed when `OCRResult.status === COMPLETED` and `OCRResult.processedImageId === page.effectiveRenderedImageId` (or unversioned legacy records).
-- If the page has been edited and fresh OCR is pending, the previous OCR overlay is automatically hidden to prevent misaligned selections.
+### 2. Strict OCR Freshness Invariants
+OCR data is considered valid **if and only if**:
+```typescript
+ocrResult.processedImageId === page.effectiveRenderedImageId
+```
+Stale OCR (where `processedImageId !== page.effectiveRenderedImageId`) is strictly prohibited from:
+- Displaying preview selectable text overlays in `LightboxPreview`.
+- Generating invisible text layers in `PdfLibPDFService`.
+- Satisfying OCR completion status checks in `CHECK_OCR_STATUS` or thumbnail status indicators in `GET_ALL_THUMBNAILS`.
 
-### 5. Auto-Healing Protocol (`GET_PAGE_OCR`)
+### 3. Non-Blocking Save & Asynchronous OCR
+The `SAVE_PAGE_ANNOTATIONS` lifecycle never blocks the user interface waiting for OCR:
+1. Vector elements, added image files, and the composited PNG data URL are received by the Service Worker.
+2. `SavePageAnnotations` persists the new `ImageAsset`, removes old rendered assets, and updates `page.renderedImageId`.
+3. The Service Worker broadcasts `SESSION_UPDATED` to refresh side panel previews.
+4. The message handler returns `{ success: true }` immediately, allowing the editor modal to close smoothly.
+5. OCR is scheduled asynchronously in an un-awaited background Promise: `runOCR.execute({ page, image: compositedImageAsset })`.
+
+### 4. Preview Lifecycle During OCR
+When the user opens a capture in `LightboxPreview`:
+```text
+Updated image available
+        ↓
+Preview opens
+        ↓
+Is fresh OCR available?
+        │
+        ├── Yes (processedImageId === activeRenderedImageId)
+        │     ↓
+        │  Display pixel-aligned selectable OCR overlay
+        │
+        └── No / Processing / Stale
+              ↓
+           Display image normally (no overlay, no error)
+              ↓
+        Background OCR completes
+              ↓
+        Service Worker broadcasts OCR_COMPLETED
+              ↓
+        Preview re-queries OCR via fetchOcr(pageId)
+              ↓
+        Display fresh selectable overlay seamlessly
+```
+Stale OCR bounding boxes from an earlier version of the image are never temporarily rendered over the newly edited image. In addition, users can click the top-right **Edit** button in `LightboxPreview` to seamlessly return to the Page Editor for the current capture.
+
+### 5. Non-Blocking Auto-Healing (`GET_PAGE_OCR`)
 When `LightboxPreview` requests OCR data via `GET_PAGE_OCR`:
-- If the page exists but its OCR result is missing or contains an empty words array (`words.length === 0`), the service worker automatically triggers `runOCR.execute({ page, image: imageAsset })` in the background.
-- Upon completion, the service worker broadcasts `OCR_COMPLETED`, prompting the lightbox to reload and display the newly extracted selectable overlay immediately.
+```text
+GET_PAGE_OCR (pageId)
+        ↓
+Read page and OCR from IndexedDB
+        ↓
+Fresh OCR exists? (ocrResult.processedImageId === page.effectiveRenderedImageId)
+        │
+        ├── Yes → return { success: true, data: { ocrResult, currentRenderedImageId } }
+        │
+        └── No (missing or stale)
+              ↓
+        Trigger / reuse background OCR asynchronously (un-awaited)
+              ↓
+        Immediately return:
+        {
+          success: true,
+          data: {
+            ocrResult: null,
+            currentRenderedImageId: page.effectiveRenderedImageId
+          }
+        }
+```
+`GET_PAGE_OCR` never blocks the caller. The preview receives `ocrResult: null` immediately, displays the visual image without latency, and listens for the `OCR_COMPLETED` event.
+
+### 6. Concurrency and Race-Condition Guarantees (`RunOCR`)
+
+`RunOCR` enforces two essential concurrency guarantees:
+
+#### A. Single-Flight OCR Deduplication
+To prevent duplicate Tesseract processing when multiple callers trigger OCR for the same page version (e.g. edit save followed immediately by preview open):
+- `RunOCR` maintains an internal `inFlightJobs: Map<string, Promise<OCRResult>>` keyed by `${page.id}:${image.id}`.
+- If an OCR job is already running or queued for that exact `(pageId, imageId)` pair, subsequent callers reuse the existing Promise instead of spawning duplicate work.
+- The entry is removed from `inFlightJobs` in a `finally` block once the operation completes or fails.
+
+#### B. Persistence-Time Freshness Validation (Rapid Consecutive Edits)
+Consider rapid consecutive user edits:
+```text
+Edit A saved
+  ↓
+Composited Image A persisted
+  ↓
+page.effectiveRenderedImageId = A
+  ↓
+OCR A starts processing in background
+
+User saves Edit B before OCR A finishes
+  ↓
+Composited Image B persisted
+  ↓
+page.effectiveRenderedImageId = B
+  ↓
+OCR B scheduled / started
+
+OCR A completes later
+  ↓
+RunOCR re-reads page from PageRepository
+  ↓
+page.effectiveRenderedImageId (B) !== processedImageId (A)
+  ↓
+OCR A result is discarded!
+- Does NOT overwrite OCRRepository
+- Does NOT update Page.status to COMPLETED
+- Suppresses OCR_COMPLETED broadcast
+```
+This ensures that slow out-of-order OCR completions never overwrite newer OCR data or leave stale text layers in storage.
+
+---
 

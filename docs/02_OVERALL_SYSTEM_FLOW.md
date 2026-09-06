@@ -49,9 +49,12 @@ Capture Available in React UI
   ▼               ▼                 ▼
 Capture Again   Manage Captures   Edit Page (Excalidraw)
   │               │                 │
-  │          ┌────┴─────┐           ├── Draw / Annotate
+  │          ┌────┴─────┐           ├── Draw / Annotate / Add Images
   │          ▼          ▼           ├── Save Vector JSON (annotationData)
-  │       Reorder     Delete        └── Render Bounded Image (renderedImageId)
+  │       Reorder     Delete        ├── Render Bounded Image (renderedImageId)
+  │                                 ├── Non-Blocking Return to UI
+  │                                 └── Background OCR on renderedImageId
+  │                                       (processedImageId === renderedImageId)
   │                                 │
   └───────────────┬─────────────────┘
                   ▼
@@ -61,7 +64,7 @@ Capture Again   Manage Captures   Edit Page (Excalidraw)
            Load Session Data (using page.effectiveRenderedImageId)
                   │
                   ▼
-           Generate PDF
+           Generate PDF (Fresh OCR only: processedImageId === effectiveRenderedImageId)
                   │
                   ▼
                   │
@@ -1070,22 +1073,47 @@ Image Processing
 Processed Image
   ↓
 Stored Capture & Image
-  ↓
-OCR Request
-  ↓
-Raw OCR Result
-  ↓
-Normalized OCR Result
-  ↓
-Stored OCR Result
-  ↓
-Capture Session
-  ↓
-PDF Input
-  ↓
-PDF Blob
-  ↓
-Downloaded File
+  │
+  ├── Initial Capture Flow ─────────────────────────┐
+  │     ↓                                           │
+  │   OCR Request (original imageId)                │
+  │     ↓                                           │
+  │   Raw OCR Result                                │
+  │     ↓                                           │
+  │   Normalized OCR Result (processedImageId)      │
+  │     ↓                                           │
+  │   Stored OCR Result                             │
+  │                                                 │
+  └── Page Edit Flow ─────────────────────────┐     │
+        ↓                                     │     │
+      User Drawings + Text + Added Images     │     │
+        ↓                                     │     │
+      Composited Rendered Image               │     │
+        ↓                                     │     │
+      Stored Rendered ImageAsset              │     │
+        (renderedImageId)                     │     │
+        ↓                                     │     │
+      Non-Blocking Edit Save Complete         │     │
+        ↓                                     │     │
+      Async OCR Request (renderedImageId)     │     │
+        ↓                                     │     │
+      Raw OCR Result                          │     │
+        ↓                                     │     │
+      Persistence-Time Freshness Validation   │     │
+        ↓                                     │     │
+      Normalized OCR Result (processedImageId)│     │
+        ↓                                     │     │
+      Stored OCR Result                       │     │
+                                              ▼     ▼
+                                        Capture Session
+                                              ↓
+                                          PDF Input
+                                              ↓
+                                        Fresh OCR Text Layer
+                                              ↓
+                                          PDF Blob
+                                              ↓
+                                       Downloaded File
 ```
 
 ---
@@ -1133,6 +1161,15 @@ The order selected by the user must determine PDF page order.
 ### 10. Future capture sources should fit the same pipeline
 
 Phone upload is not implemented in v1, but the capture pipeline should not fundamentally depend on screenshots being the only possible future input.
+
+### 11. Final rendered image is the single source of truth for OCR
+
+When a page is edited with vector drawings, text, or added local images:
+- OCR executes on the exact composited image (`page.effectiveRenderedImageId`).
+- Saving annotations is strictly non-blocking (the user returns immediately).
+- Stale OCR is strictly invalidated (`ocrResult.processedImageId === page.effectiveRenderedImageId`).
+- Single-flight deduplication and persistence-time freshness validation guarantee that out-of-order completions from rapid consecutive edits are discarded and never corrupt newer OCR state.
+- Downstream consumers (Preview text overlay and PDF generation) consume only fresh OCR.
 
 ---
 
