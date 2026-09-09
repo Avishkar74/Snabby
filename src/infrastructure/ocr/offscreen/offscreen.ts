@@ -1,4 +1,9 @@
 import { TesseractWorker } from '../TesseractWorker.ts';
+import {
+  computeUpscaleFactor,
+  scaleWordsBack,
+  shouldInvertForOcr,
+} from '../ocrPreprocess.ts';
 
 console.log('[Offscreen] Offscreen document script loaded and initialized.');
 
@@ -19,6 +24,18 @@ if (typeof console !== 'undefined' && console.error) {
 }
 
 const tesseractWorker = new TesseractWorker();
+
+interface PreprocessResult {
+  /** data URL handed to Tesseract (may be upscaled / grayscaled / inverted) */
+  processedDataUrl: string;
+  /** authoritative width of the ORIGINAL image (OCR coordinate space) */
+  width: number;
+  /** authoritative height of the ORIGINAL image (OCR coordinate space) */
+  height: number;
+  /** factor the processed image was upscaled by; word boxes are divided back by this */
+  scaleFactor: number;
+  isInverted: boolean;
+}
 
 // Message handler for service worker requests
 chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
@@ -57,27 +74,39 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
       return false;
     }
 
-    console.log(`[Offscreen] Starting OCR on dataUrl (length: ${dataUrl.length})...`);
+    // Authoritative dimensions come from the persisted ImageAsset (decoded once,
+    // in the service worker's image processor). The offscreen canvas decode is
+    // only used for pixel operations, never as the source of truth for size.
+    const hintWidth = typeof message.srcWidth === 'number' && message.srcWidth > 0 ? message.srcWidth : 0;
+    const hintHeight = typeof message.srcHeight === 'number' && message.srcHeight > 0 ? message.srcHeight : 0;
+
+    console.log(`[Offscreen] Starting OCR on dataUrl (length: ${dataUrl.length}, hint: ${hintWidth}x${hintHeight})...`);
 
     (async () => {
       try {
         const t0 = Date.now();
-        // Preprocess image: detect dark-mode background and invert if necessary
-        const { processedDataUrl, width, height, isInverted } = await preprocessImageForOCR(dataUrl);
-        console.log(`[Offscreen] Image dimensions: ${width}x${height}, dark-mode inverted: ${isInverted}`);
+        const pre = await preprocessImageForOCR(dataUrl, hintWidth, hintHeight);
+        console.log(
+          `[Offscreen] Image ${pre.width}x${pre.height}, upscale x${pre.scaleFactor}, dark-mode inverted: ${pre.isInverted}`
+        );
 
-        // Run Tesseract OCR on the optimal contrast image
         console.log('[Offscreen] Calling TesseractWorker.recognize()...');
-        const ocrResult = await tesseractWorker.recognize(processedDataUrl);
-        console.log(`[Offscreen] OCR done in ${Date.now() - t0}ms. Words: ${ocrResult.words?.length}, Text: ${ocrResult.text?.slice(0, 80)}`);
+        const ocrResult = await tesseractWorker.recognize(pre.processedDataUrl);
+
+        // Divide word boxes back into the ORIGINAL image coordinate space.
+        const words = scaleWordsBack(ocrResult.words, pre.scaleFactor);
+
+        console.log(
+          `[Offscreen] OCR done in ${Date.now() - t0}ms. Words: ${words?.length}, Text: ${ocrResult.text?.slice(0, 80)}`
+        );
 
         sendResponse({
           success: true,
           text: ocrResult.text,
           confidence: ocrResult.confidence,
-          words: ocrResult.words,
-          imageWidth: width,
-          imageHeight: height
+          words,
+          imageWidth: pre.width,
+          imageHeight: pre.height
         });
       } catch (err: unknown) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -102,50 +131,87 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
 });
 
 /**
- * Preprocesses screenshot for Tesseract OCR.
- * Tesseract's LSTM model was trained on black text on white paper.
- * On dark mode pages (like GitHub, VS Code, dark themes), light text on dark backgrounds
- * suffers from severely degraded accuracy, missed words, and border errors.
- * Inverting dark images makes text dark-on-white without altering coordinate geometry.
+ * Preprocesses a screenshot for Tesseract OCR.
+ *
+ * Steps (all coordinate-preserving once `scaleFactor` is divided back out):
+ *   1. Decode the image on a canvas.
+ *   2. Optionally upscale small images ~2x so text reaches Tesseract's
+ *      preferred resolution (better recognition AND tighter word boxes).
+ *   3. Convert to grayscale (Tesseract works in grayscale internally).
+ *   4. If the page is predominantly dark (light text on dark ground), invert
+ *      so the LSTM model sees the dark-on-light it was trained on.
+ *
+ * When no canvas/DOM is available (Node unit tests) the original data URL is
+ * returned untouched with the caller-supplied dimensions.
  */
-function preprocessImageForOCR(dataUrl: string): Promise<{
-  processedDataUrl: string;
-  width: number;
-  height: number;
-  isInverted: boolean;
-}> {
+function preprocessImageForOCR(
+  dataUrl: string,
+  hintWidth: number,
+  hintHeight: number,
+): Promise<PreprocessResult> {
   return new Promise((resolve) => {
+    const fallback = (w: number, h: number): PreprocessResult => ({
+      processedDataUrl: dataUrl,
+      width: w > 0 ? w : hintWidth,
+      height: h > 0 ? h : hintHeight,
+      scaleFactor: 1,
+      isInverted: false,
+    });
+
     if (typeof Image === 'undefined' || typeof document === 'undefined') {
-      resolve({ processedDataUrl: dataUrl, width: 1920, height: 1080, isInverted: false });
+      resolve(fallback(hintWidth, hintHeight));
       return;
     }
 
     const img = new Image();
+
+    img.onerror = (err) => {
+      console.warn('[Offscreen] Failed to load image for preprocessing:', err);
+      resolve(fallback(hintWidth, hintHeight));
+    };
+
     img.onload = () => {
-      const width = img.width;
-      const height = img.height;
+      const naturalWidth = img.width;
+      const naturalHeight = img.height;
+
+      // Prefer the authoritative hint; fall back to the decoded natural size.
+      const width = hintWidth > 0 ? hintWidth : naturalWidth;
+      const height = hintHeight > 0 ? hintHeight : naturalHeight;
 
       if (width <= 0 || height <= 0) {
-        resolve({ processedDataUrl: dataUrl, width: 1920, height: 1080, isInverted: false });
+        resolve(fallback(naturalWidth, naturalHeight));
         return;
       }
 
       try {
+        const scaleFactor = computeUpscaleFactor(width, height);
+        const canvasWidth = Math.round(naturalWidth * scaleFactor);
+        const canvasHeight = Math.round(naturalHeight * scaleFactor);
+
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
-          resolve({ processedDataUrl: dataUrl, width, height, isInverted: false });
+          resolve(fallback(width, height));
           return;
         }
 
-        ctx.drawImage(img, 0, 0);
-        const imgData = ctx.getImageData(0, 0, width, height);
+        if (scaleFactor !== 1) {
+          ctx.imageSmoothingEnabled = true;
+          try {
+            ctx.imageSmoothingQuality = 'high';
+          } catch {
+            /* not all engines support this hint */
+          }
+        }
+        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+
+        const imgData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
         const d = imgData.data;
 
-        // Sample relative luminance across the screenshot
-        const step = Math.max(1, Math.floor((width * height) / 20000));
+        // Sample mean luminance to decide whether to invert.
+        const step = Math.max(1, Math.floor((canvasWidth * canvasHeight) / 20000));
         let totalLuma = 0;
         let count = 0;
         for (let i = 0; i < d.length; i += step * 4) {
@@ -153,37 +219,31 @@ function preprocessImageForOCR(dataUrl: string): Promise<{
           count++;
         }
         const avgLuma = count > 0 ? totalLuma / count : 128;
+        const invert = shouldInvertForOcr(avgLuma);
 
-        // If overall background is dark (average luminance < 115), invert colors
-        if (avgLuma < 115) {
-          for (let i = 0; i < d.length; i += 4) {
-            d[i] = 255 - d[i];         // R
-            d[i + 1] = 255 - d[i + 1]; // G
-            d[i + 2] = 255 - d[i + 2]; // B
-          }
-          ctx.putImageData(imgData, 0, 0);
-          resolve({
-            processedDataUrl: canvas.toDataURL('image/png'),
-            width,
-            height,
-            isInverted: true,
-          });
-          return;
+        // Single pass: grayscale (+ optional invert).
+        for (let i = 0; i < d.length; i += 4) {
+          let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          if (invert) g = 255 - g;
+          d[i] = g;
+          d[i + 1] = g;
+          d[i + 2] = g;
         }
+        ctx.putImageData(imgData, 0, 0);
 
-        resolve({ processedDataUrl: dataUrl, width, height, isInverted: false });
+        resolve({
+          processedDataUrl: canvas.toDataURL('image/png'),
+          width,
+          height,
+          scaleFactor,
+          isInverted: invert,
+        });
       } catch (err) {
         console.warn('[Offscreen] Preprocessing error, using raw image:', err);
-        resolve({ processedDataUrl: dataUrl, width, height, isInverted: false });
+        resolve(fallback(width, height));
       }
-    };
-
-    img.onerror = (err) => {
-      console.warn('[Offscreen] Failed to load image for preprocessing:', err);
-      resolve({ processedDataUrl: dataUrl, width: 0, height: 0, isInverted: false });
     };
 
     img.src = dataUrl;
   });
 }
-

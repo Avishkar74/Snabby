@@ -1,5 +1,10 @@
 import React, { useMemo } from 'react';
 import type { OCRWord } from '../../../domain/ocr/ocr.types.ts';
+import {
+  clusterOcrRegions,
+  horizontalScalePercent,
+  OCR_BOX_TO_FONT_SIZE_RATIO,
+} from '../../../infrastructure/ocr/textLayerGeometry.ts';
 
 export interface RenderedImageRect {
   width: number;
@@ -17,41 +22,82 @@ export interface OCRTextOverlayProps {
 
 interface PositionedWord {
   text: string;
-  xPx: number;
-  yPx: number;
-  wPx: number;
-  hPx: number;
+  /** left edge in rendered CSS px, relative to the region box */
+  leftPx: number;
+  /** top edge of the word span in rendered CSS px, relative to the region box */
+  topPx: number;
+  /** font size in rendered CSS px */
   fontSizePx: number;
-  hasTrailingSpace: boolean;
+  /**
+   * Line-box height in rendered CSS px == the line pitch. The selection
+   * highlight fills the line box, so matching the pitch makes highlights tile
+   * like native browser text selection instead of leaving gaps between lines.
+   */
+  lineHeightPx: number;
+  /** CSS transform: scaleX() factor that fits the glyph run to the OCR box width */
+  scaleX: number;
+}
+
+interface PositionedRegion {
+  /** region box in rendered CSS px, relative to the overlay origin */
+  leftPx: number;
+  topPx: number;
+  widthPx: number;
+  heightPx: number;
+  words: PositionedWord[];
+}
+
+const OCR_FONT_STACK =
+  'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+// Ascent of a typical system sans-serif as a fraction of the representative
+// glyph height (ascender-to-descender). Converts an OCR baseline into the CSS
+// `top` of the word span (which the browser aligns near the glyph tops when
+// `line-height: 1`).
+const OCR_ASCENT_RATIO = 0.8;
+
+// A single reused canvas context for text measurement. `measureText` gives the
+// natural rendered width of a string, which we compare against the OCR box width
+// to derive a per-word horizontal squeeze/stretch — the DOM equivalent of the
+// PDF text layer's `Tz` operator.
+let measureCtx: CanvasRenderingContext2D | null = null;
+let measureCtxReady = false;
+
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+  if (measureCtxReady) return measureCtx;
+  measureCtxReady = true;
+  try {
+    if (typeof document !== 'undefined') {
+      measureCtx = document.createElement('canvas').getContext('2d');
+    }
+  } catch {
+    measureCtx = null;
+  }
+  return measureCtx;
+}
+
+function measureTextWidth(text: string, fontSizePx: number): number {
+  const ctx = getMeasureCtx();
+  if (!ctx) return 0;
+  ctx.font = `${fontSizePx}px ${OCR_FONT_STACK}`;
+  return ctx.measureText(text).width;
 }
 
 /**
- * Renders a pixel-accurate selectable text overlay directly over the visible rendered
- * <img> element according to the Critical OCR/Image Alignment Contract.
+ * Renders a pixel-accurate selectable text overlay directly over the visible
+ * rendered <img> element.
  *
- * === Coordinate Mapping (proven identical model to PDF) ===
- *
- * OCR bounding boxes are in original image pixel space (top-left origin):
- *   word at (x, y, w, h) in an image of (imageWidth × imageHeight)
- *
- * The img element is measured via getBoundingClientRect() which gives the
- * actual rendered pixel rect (display: block, no letterboxing since the img
- * element itself sizes to fit its content without extra dead space).
- *
- * Scale factors:
- *   scaleX = renderedRect.width  / imageWidth
- *   scaleY = renderedRect.height / imageHeight
- *
- * Mapped position in rendered space (overlay div origin = img element top-left):
- *   left   = word.x * scaleX
- *   top    = word.y * scaleY         ← same direction (both top-down)
- *   width  = word.w * scaleX
- *   height = word.h * scaleY
- *
- * Font size = word.h * scaleY  (same as PDF: font size = OCR box height * scale)
- * Line height = height (= word.h * scaleY) so text is vertically centred in the box.
- *
- * Groups words into visual lines so DOM drag-selection spans full sentences.
+ * Geometry is delegated to the shared `textLayerGeometry` module so it stays
+ * identical to the searchable-PDF text layer:
+ *   - Words are segmented into layout regions (columns / stacked blocks) and
+ *     each region is rendered as its own container in reading order, so
+ *     selecting part of one column never pulls in the neighbouring column.
+ *   - Within a region, words are clustered into visual lines (ordered, spaced).
+ *   - Font size comes from the line's representative glyph height, not the full
+ *     bounding-box height.
+ *   - Each word is squeezed/stretched horizontally (`transform: scaleX`) so its
+ *     transparent glyph run covers exactly the same width as the OCR box —
+ *     selection highlight tracks the screenshot instead of drifting.
  */
 export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
   words,
@@ -59,137 +105,95 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
   imageHeight,
   renderedRect,
 }) => {
-  // Defensive validation of OCR data and rendered dimensions
-  if (
-    !Array.isArray(words) ||
-    words.length === 0 ||
-    typeof imageWidth !== 'number' ||
-    typeof imageHeight !== 'number' ||
-    imageWidth <= 0 ||
-    imageHeight <= 0 ||
-    !renderedRect ||
-    renderedRect.width <= 0 ||
-    renderedRect.height <= 0
-  ) {
+  const valid =
+    Array.isArray(words) &&
+    words.length > 0 &&
+    typeof imageWidth === 'number' &&
+    typeof imageHeight === 'number' &&
+    imageWidth > 0 &&
+    imageHeight > 0 &&
+    renderedRect &&
+    renderedRect.width > 0 &&
+    renderedRect.height > 0;
+
+  // Exact scale factors mapping source-image pixel space -> rendered CSS px.
+  const scaleX = valid ? renderedRect.width / imageWidth : 1;
+  const scaleY = valid ? renderedRect.height / imageHeight : 1;
+
+  const regions = useMemo<PositionedRegion[]>(() => {
+    if (!valid) return [];
+
+    const geomRegions = clusterOcrRegions(words);
+    const out: PositionedRegion[] = [];
+
+    for (const region of geomRegions) {
+      const regionLeftPx = region.left * scaleX;
+      const regionTopPx = region.top * scaleY;
+      const positioned: PositionedWord[] = [];
+      const lines = region.lines;
+
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+
+        // Line pitch (baseline-to-baseline) drives the selection highlight box.
+        const prev = lines[li - 1];
+        const next = lines[li + 1];
+        const pitchSrc =
+          next ? next.baselineFromTop - line.baselineFromTop
+          : prev ? line.baselineFromTop - prev.baselineFromTop
+          : line.fontHeight * 1.6;
+
+        // Approximate font size from the tight OCR box, but never larger than
+        // the line pitch (keeps adjacent lines' highlight boxes from overlapping).
+        const emSrc = line.fontHeight / OCR_BOX_TO_FONT_SIZE_RATIO;
+        const fontSizePx = Math.max(6, Math.min(emSrc, pitchSrc * 0.95) * scaleY);
+
+        const lineHeightPx = Math.max(
+          fontSizePx,
+          Math.min(line.fontHeight * 2.6, Math.max(line.fontHeight, pitchSrc)) * scaleY,
+        );
+
+        // Place the span so its text baseline lands on the OCR baseline. With
+        // line-height == pitch the glyph box is vertically centred in the line
+        // box, so we back that half-leading out of `top`.
+        const baselinePx = line.baselineFromTop * scaleY;
+        const topPx =
+          baselinePx -
+          (lineHeightPx - fontSizePx) / 2 -
+          fontSizePx * OCR_ASCENT_RATIO -
+          regionTopPx;
+
+        for (const word of line.words) {
+          const text = `${word.text} `;
+          const leftPx = word.x * scaleX - regionLeftPx;
+          const boxWidthPx = Math.max(1, word.width * scaleX);
+          const naturalPx = measureTextWidth(text, fontSizePx);
+          const scale =
+            naturalPx > 0
+              ? horizontalScalePercent(boxWidthPx, naturalPx, 10, 1000) / 100
+              : 1;
+
+          positioned.push({ text, leftPx, topPx, fontSizePx, lineHeightPx, scaleX: scale });
+        }
+      }
+
+      if (positioned.length === 0) continue;
+
+      out.push({
+        leftPx: regionLeftPx,
+        topPx: regionTopPx,
+        widthPx: Math.max(1, (region.right - region.left) * scaleX),
+        heightPx: Math.max(1, (region.bottom - region.top) * scaleY),
+        words: positioned,
+      });
+    }
+
+    return out;
+  }, [valid, words, scaleX, scaleY]);
+
+  if (!valid || regions.length === 0) {
     return null;
   }
-
-  // Exact scale factors mapping original image pixel space → rendered pixel space.
-  // These match the PDF coordinate model: OCR coords / image natural size * rendered size.
-  const scaleX = renderedRect.width / imageWidth;
-  const scaleY = renderedRect.height / imageHeight;
-
-  const positionedWords = useMemo(() => {
-    // 1. Filter valid words with positive-area bounding boxes
-    const valid = words.filter((w) => {
-      if (!w || typeof w !== 'object') return false;
-      const box = w.boundingBox;
-      if (!box || typeof box.x !== 'number' || typeof box.y !== 'number') return false;
-      const rw = typeof box.width === 'number' ? box.width : 0;
-      const rh = typeof box.height === 'number' ? box.height : 0;
-      if (rw <= 0 || rh <= 0) return false;
-      const t = typeof w.text === 'string' ? w.text.trim() : String(w.text || '').trim();
-      return t.length > 0;
-    });
-
-    // 2. Sort by vertical midpoint for line grouping
-    const sortedByMidY = [...valid].sort((a, b) => {
-      const aMid = a.boundingBox.y + a.boundingBox.height / 2;
-      const bMid = b.boundingBox.y + b.boundingBox.height / 2;
-      return aMid - bMid;
-    });
-
-    // 3. Cluster words into visual lines using midpoint proximity.
-    //    Tolerance = 50% of the smaller height of the word or current line height.
-    interface LineCluster {
-      minY: number;
-      maxY: number;
-      words: typeof valid;
-    }
-    const lines: LineCluster[] = [];
-
-    for (const word of sortedByMidY) {
-      const box = word.boundingBox;
-      const wMidY = box.y + box.height / 2;
-      let targetLine: LineCluster | null = null;
-
-      for (const line of lines) {
-        const lineMidY = (line.minY + line.maxY) / 2;
-        const lineH = line.maxY - line.minY;
-        const tol = Math.min(box.height, lineH) * 0.5;
-        if (Math.abs(wMidY - lineMidY) <= tol) {
-          targetLine = line;
-          break;
-        }
-      }
-
-      if (targetLine) {
-        targetLine.words.push(word);
-        targetLine.minY = Math.min(targetLine.minY, box.y);
-        targetLine.maxY = Math.max(targetLine.maxY, box.y + box.height);
-      } else {
-        lines.push({
-          minY: box.y,
-          maxY: box.y + box.height,
-          words: [word],
-        });
-      }
-    }
-
-    // 4. Sort lines top-to-bottom
-    lines.sort((a, b) => a.minY - b.minY);
-
-    // 5. For each line, sort words left-to-right and compute positions
-    const result: PositionedWord[] = [];
-    for (const line of lines) {
-      line.words.sort((a, b) => a.boundingBox.x - b.boundingBox.x);
-
-      // Unified line vertical geometry in rendered pixel space.
-      // Use the exact OCR box extents — same formula as PDF coordinate mapping.
-      const lineTopPx = line.minY * scaleY;
-      const lineHPx = Math.max(1, (line.maxY - line.minY) * scaleY);
-
-      // Font size = line height in rendered space.
-      // This is the same invariant as the PDF text layer: fontSize = OCR box height * scale.
-      // CSS lineHeight = height keeps the text vertically centered in the span box.
-      const fontSizePx = lineHPx;
-
-      for (let i = 0; i < line.words.length; i++) {
-        const word = line.words[i];
-        const nextWord = line.words[i + 1];
-        const box = word.boundingBox;
-
-        // Word left position in rendered space
-        const xPx = box.x * scaleX;
-        const rawW = box.width * scaleX;
-
-        // Bridge inter-word gaps so mouse drag-selection doesn't fall through spaces.
-        // Only bridge if the gap is < 2x the line height (prevents overreaching).
-        let wPx = Math.max(rawW, 1);
-        if (nextWord) {
-          const nextXPx = nextWord.boundingBox.x * scaleX;
-          const gap = nextXPx - (xPx + rawW);
-          if (gap > 0 && gap <= lineHPx * 2) {
-            wPx = nextXPx - xPx;
-          }
-        }
-
-        const text = typeof word.text === 'string' ? word.text : String(word.text || '');
-
-        result.push({
-          text,
-          xPx,
-          yPx: lineTopPx,
-          wPx,
-          hPx: lineHPx,
-          fontSizePx,
-          hasTrailingSpace: !!nextWord,
-        });
-      }
-    }
-
-    return result;
-  }, [words, scaleX, scaleY]);
 
   return (
     <div
@@ -200,41 +204,57 @@ export const OCRTextOverlay: React.FC<OCRTextOverlayProps> = ({
         top: `${renderedRect.top}px`,
         width: `${renderedRect.width}px`,
         height: `${renderedRect.height}px`,
-        pointerEvents: 'auto',
+        // The overlay itself lets clicks through to the image; only the word
+        // spans capture pointer events, so bare image areas stay interactive.
+        pointerEvents: 'none',
         overflow: 'hidden',
         userSelect: 'text',
         WebkitUserSelect: 'text',
-        cursor: 'text',
         zIndex: 5,
       }}
     >
-      {positionedWords.map((pw, idx) => (
-        <span
-          key={idx}
-          className="wsn-ocr-word"
-          title={pw.text}
+      {regions.map((region, ri) => (
+        <div
+          key={ri}
+          className="wsn-ocr-region"
           style={{
             position: 'absolute',
-            left: `${pw.xPx}px`,
-            top: `${pw.yPx}px`,
-            width: `${pw.wPx}px`,
-            height: `${pw.hPx}px`,
-            // Font size = line height in rendered space, matching the PDF text-layer invariant.
-            // CSS lineHeight = height vertically centres the text in the span box.
-            fontSize: `${pw.fontSizePx}px`,
-            lineHeight: `${pw.hPx}px`,
-            fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            color: 'transparent',
+            left: `${region.leftPx}px`,
+            top: `${region.topPx}px`,
+            width: `${region.widthPx}px`,
+            height: `${region.heightPx}px`,
+            pointerEvents: 'none',
             userSelect: 'text',
             WebkitUserSelect: 'text',
-            pointerEvents: 'auto',
-            whiteSpace: 'pre',
-            cursor: 'text',
-            display: 'inline-block',
           }}
         >
-          {pw.text + (pw.hasTrailingSpace ? ' ' : '')}
-        </span>
+          {region.words.map((pw, wi) => (
+            <span
+              key={wi}
+              className="wsn-ocr-word"
+              title={pw.text}
+              style={{
+                position: 'absolute',
+                left: `${pw.leftPx}px`,
+                top: `${pw.topPx}px`,
+                fontSize: `${pw.fontSizePx}px`,
+                lineHeight: `${pw.lineHeightPx}px`,
+                fontFamily: OCR_FONT_STACK,
+                color: 'transparent',
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                pointerEvents: 'auto',
+                whiteSpace: 'pre',
+                cursor: 'text',
+                display: 'inline-block',
+                transform: `scaleX(${pw.scaleX})`,
+                transformOrigin: 'left center',
+              }}
+            >
+              {pw.text}
+            </span>
+          ))}
+        </div>
       ))}
     </div>
   );

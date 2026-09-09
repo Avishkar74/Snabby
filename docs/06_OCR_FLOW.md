@@ -2392,3 +2392,33 @@ This ensures that slow out-of-order OCR completions never overwrite newer OCR da
 
 ---
 
+## ARCHITECTURE UPDATE: Offscreen Recognition Preprocessing & Shared Text-Layer Geometry
+
+### 1. Recognition preprocessing (`offscreen.ts#preprocessImageForOCR`)
+Before Tesseract runs, the offscreen document normalises the image on a canvas. All steps are **coordinate-preserving** once the upscale factor is divided back out:
+
+1. **Authoritative dimensions.** `TesseractOCRAdapter` sends `srcWidth`/`srcHeight` from the already-decoded `ImageAsset`. The offscreen canvas decode is used only for pixel work — never as the source of truth for size — so `OCRResult.imageWidth/Height` always equals the embedded/preview image size.
+2. **Upscale small images.** `computeUpscaleFactor` returns `2` when `min(width, height) < 1000`, else `1` (retina captures are already large enough). The image is drawn at `naturalSize · factor` with high-quality smoothing; recognised word boxes are divided back by `factor` via `scaleWordsBack` before leaving the offscreen document.
+3. **Grayscale** (Tesseract works in grayscale internally).
+4. **Dark-mode inversion.** If mean luminance `< 115` (`shouldInvertForOcr`), colours are inverted so the LSTM model sees the dark-on-light it was trained on.
+
+`TesseractWorker` also sets `preserve_interword_spaces = '1'` once per worker.
+
+Pure helpers live in `src/infrastructure/ocr/ocrPreprocess.ts` and are unit-tested in Node.
+
+### 2. Shared text-layer geometry (`src/infrastructure/ocr/textLayerGeometry.ts`)
+The pipeline is: filter degenerate boxes → **segment into layout regions** → cluster lines within each region → emit regions in reading order.
+
+- **Layout segmentation (`clusterOcrRegions`)** — a recursive XY-cut. First cuts on genuinely empty horizontal bands (peels off full-width headers / footers / section rules), then on vertical gutters (columns), tolerating a little OCR noise inside a gutter and rejecting a "column split" that would only shave a sliver off one side. This is what lets a user select **one column** of a multi-column screenshot without the selection zig-zagging into the neighbouring column. Tesseract's own block hierarchy is unusable here — with PSM 3 it returns the whole page as one block.
+- **Line clustering (per region)** — groups words into visual lines by vertical-overlap ratio (guarded against giant artefact boxes), orders each line left-to-right, and derives a **representative (median) glyph height** and an estimated **baseline** per line. The line's glyph height is clamped to a band around the document-wide median so a Tesseract box-merge (a label glued to the control below it) cannot blow up the font size of one selection line.
+- **Confidence-based noise removal** — Tesseract scores real body text ~80-99 and OCR misfires over photos/icons near 0. A hard floor (`minConfidence`, default 30) drops the worst; then, per line, a not-rock-solid word whose height is a strong outlier for its line, or that sits well outside the horizontal span of the line's real text, is dropped, and an all-noise line is dropped entirely. Words with no confidence value (older data, tests) are always kept. This is what stops garbled "text" appearing over the engravings / thumbnails on a page.
+- **`OCR_BOX_TO_FONT_SIZE_RATIO`** — Tesseract boxes are the tight glyph extent (~0.78 em); consumers divide `fontHeight` by this to recover an approximate CSS font size.
+- **`horizontalScalePercent()`** — the `Tz`/`scaleX` factor that fits a word's glyph run to its OCR box width.
+- **`clusterOcrLines()`** — the region-flattened line list (reading order preserved), kept for the PDF consumer.
+
+Both consumers use this one module, so their geometry cannot drift:
+- `PdfLibPDFService.drawOcrTextLayer` — invisible (`3 Tr`) PDF text, per-word `Tm` + `Tz`, region-ordered.
+- `OCRTextOverlay` — one `<div class="wsn-ocr-region">` per region (reading order) with transparent DOM spans inside, per-word `transform: scaleX()`. Each span's `line-height` is set to the measured **line pitch** so the selection highlight fills the line box like native text instead of being a thin band. The overlay and region wrappers are `pointer-events: none`; only the word spans capture events, so bare image areas under the layer stay clickable. Column-scoped DOM order is what keeps drag-selection inside a single column.
+
+---
+

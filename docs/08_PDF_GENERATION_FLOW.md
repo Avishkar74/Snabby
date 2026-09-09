@@ -802,18 +802,21 @@ To preserve the native screenshot resolution without distortion, letterboxing, o
   - `renderedHeight = imageHeight`
 
 ### Decision 8 — Coordinate Transformation Formula
-OCR bounding boxes `(x_img, y_img, w_img, h_img)` (with top-left origin) are mapped to PDF coordinates `(x_pdf, y_pdf)` (with bottom-left origin) using `CoordinateMapper.map`:
-- `w_pdf = w_img * scale`
-- `h_pdf = h_img * scale`
-- `x_pdf = imgLeft + (x_img * scale)`
-- `y_pdf = imgBottom + (imageHeight - y_img - h_img) * scale`
+OCR bounding boxes are in **source-image pixel space** (top-left origin) — the exact pixels Tesseract processed, i.e. `OCRResult.imageWidth × OCRResult.imageHeight`. `PdfLibPDFService.drawOcrTextLayer` maps them to PDF points (bottom-left origin) with:
+- `scaleX = renderedWidth / ocrResult.imageWidth`, `scaleY = renderedHeight / ocrResult.imageHeight` (both `1.0` under the scale-1 page-sizing policy)
+- `x_pdf = imgLeft + x_img · scaleX`
+- `baselineY_pdf = imgBottom + (ocrImageHeight − line.baselineFromTop) · scaleY` — a per-line baseline (Y flip), not a per-word box bottom
+- word width is fitted with `Tz`, not by drawing at the raw box height
+
+`CoordinateMapper` remains as a pure math utility (and is still unit-tested) but the text layer no longer routes through `CoordinateMapper.map`.
 
 ### Decision 9 — Line Clustering & OCR Text Overlay Strategy
-Text is drawn over the embedded screenshot using invisible PDF text operators (`3 Tr` invisible text render mode or `opacity: 0` text rendering with custom text matrices):
-- Valid non-empty words with positive dimensions are filtered from the OCR result.
-- Words are sorted and clustered into visual lines based on vertical overlap.
-- For each line, words are rendered left-to-right with exact baseline positioning. When lines contain multiple words, word spacing (`Tw`) or horizontal scaling (`Tz`) calibrates letterbox alignment so text selection matches the visual screenshot perfectly.
-- Font is embedded as **`StandardFonts.Helvetica`** via `pdfDoc.embedFont(StandardFonts.Helvetica)`. Text that cannot be encoded by Helvetica is filtered out gracefully.
+Text is drawn over the embedded screenshot using invisible PDF text operators (`3 Tr` invisible text render mode) emitted directly via `pdfPage.pushOperators`:
+- Layout segmentation (recursive XY-cut into columns / stacked blocks), word clustering, ordering, line font-height and baseline estimation are delegated to the **shared** `src/infrastructure/ocr/textLayerGeometry.ts` helper (`clusterOcrLines` = the region-flattened line list). The on-screen preview overlay (`OCRTextOverlay`) consumes the *same* module (`clusterOcrRegions`), so the PDF text layer and the preview selection layer can never drift apart. Emitting text region-by-region keeps a multi-column screenshot's copy/extraction order correct.
+- Degenerate words (empty text, non-positive boxes) are dropped by the helper.
+- Each line is emitted with a single font size derived from the line's **representative (median) glyph height** via `font.sizeAtHeight()` — never the full bounding-box height, which over-sizes the em square and makes lines overlap.
+- Each word is positioned with its own `Tm` text matrix at `imgLeft + x·scaleX` and horizontally scaled with `Tz` (`SetTextHorizontalScaling`) so its glyph run occupies exactly the OCR box width. This keeps selection locked to the screenshot instead of drifting across a line.
+- Font is embedded as **`StandardFonts.Helvetica`** via `pdfDoc.embedFont(StandardFonts.Helvetica)`. Text that cannot be encoded by Helvetica is filtered out gracefully (`font.encodeText` guard).
 
 ### Decision 9.1 — PDF Document Title
 The generated PDF document title is set to `session.name` via `pdfDoc.setTitle(session.name)` for metadata attribution.

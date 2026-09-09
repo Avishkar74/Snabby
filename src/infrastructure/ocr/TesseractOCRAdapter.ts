@@ -29,7 +29,12 @@ export class TesseractOCRAdapter implements OCRService {
       const response = await this.messageBus.request<any>({
         target: 'offscreen',
         action: 'ocr',
-        dataUrl
+        dataUrl,
+        // Authoritative dimensions from the already-decoded ImageAsset. The
+        // offscreen document uses these as the OCR coordinate space rather than
+        // re-deriving size from its own canvas decode.
+        srcWidth: image.width,
+        srcHeight: image.height
       } as any);
       console.log(`[TesseractOCRAdapter] Offscreen response received in ${Date.now() - t2}ms:`, {
         success: response?.success,

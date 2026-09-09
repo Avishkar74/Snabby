@@ -947,12 +947,20 @@
 /* ─── Selectable OCR Text Overlay ─── */
 .wsn-ocr-overlay {
   position: absolute;
-  pointer-events: auto !important;
+  /* Overlay + region wrappers let clicks through; only word spans capture
+     pointer events, so bare image areas under the layer stay interactive. */
+  pointer-events: none !important;
   overflow: hidden;
   user-select: text !important;
   -webkit-user-select: text !important;
-  cursor: text;
   z-index: 5;
+}
+
+.wsn-ocr-region {
+  position: absolute;
+  pointer-events: none !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .wsn-ocr-word {

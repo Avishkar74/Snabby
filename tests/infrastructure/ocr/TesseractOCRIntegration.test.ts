@@ -86,8 +86,11 @@ async function runTests() {
     assert(ocrResult.status === OCRStatus.COMPLETED, 'OCR status is COMPLETED');
     assert(typeof ocrResult.fullText === 'string', 'fullText is extracted');
     assert(Array.isArray(ocrResult.words), 'words is mapped as array');
-    assert(ocrResult.imageWidth === 1920, 'Image width matches default fallback in Node (1920)');
-    assert(ocrResult.imageHeight === 1080, 'Image height matches default fallback in Node (1080)');
+    // The offscreen document now uses the authoritative ImageAsset dimensions
+    // (passed by the adapter) as the OCR coordinate space, rather than a
+    // hard-coded Node fallback.
+    assert(ocrResult.imageWidth === 1, 'Image width matches the authoritative ImageAsset width');
+    assert(ocrResult.imageHeight === 1, 'Image height matches the authoritative ImageAsset height');
 
     console.log('✓ Test 1: E2E OCR Flow (SW -> MessageBus -> Offscreen -> Tesseract) succeeds - PASS');
   } catch (err: unknown) {

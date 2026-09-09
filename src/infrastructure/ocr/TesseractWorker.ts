@@ -37,6 +37,15 @@ export class TesseractWorker {
         console.log('[TesseractWorker] Creating worker with options:', options);
         // Create worker for English language
         const worker = await createWorker('eng', 1, options);
+
+        // preserve_interword_spaces stops Tesseract collapsing runs of spaces,
+        // which improves word segmentation / box tightness on UI screenshots.
+        try {
+          await worker.setParameters({ preserve_interword_spaces: '1' });
+        } catch (paramErr) {
+          console.warn('[TesseractWorker] setParameters failed (continuing with defaults):', paramErr);
+        }
+
         this.worker = worker;
         this.initializingPromise = null;
         console.log('[TesseractWorker] Tesseract worker initialized successfully.');

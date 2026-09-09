@@ -1,4 +1,16 @@
-import { PDFDocument, rgb, StandardFonts, type PDFFont } from 'pdf-lib';
+import {
+  PDFDocument,
+  StandardFonts,
+  PDFOperator,
+  PDFOperatorNames,
+  PDFNumber,
+  pushGraphicsState,
+  popGraphicsState,
+  beginText,
+  endText,
+  type PDFFont,
+  type PDFPage,
+} from 'pdf-lib';
 import type { PDFService } from '../../application/interfaces/services/PDFService.ts';
 import type { Session } from '../../domain/session/Session.ts';
 import type { Page } from '../../domain/page/Page.ts';
@@ -8,6 +20,11 @@ import type { ImageRepository } from '../../application/interfaces/repositories/
 import type { OCRRepository } from '../../application/interfaces/repositories/OCRRepository.ts';
 import { OCRStatus } from '../../domain/ocr/ocr.types.ts';
 import { PDFGenerationError } from '../../application/pdf/errors.ts';
+import {
+  clusterOcrLines,
+  horizontalScalePercent,
+  OCR_BOX_TO_FONT_SIZE_RATIO,
+} from '../ocr/textLayerGeometry.ts';
 
 /**
  * Strongly typed helper to resolve the effective image ID for a page.
@@ -88,11 +105,8 @@ export class PdfLibPDFService implements PDFService {
         const pdfPage = pdfDoc.addPage([pageWidth, pageHeight]);
 
         // Image is drawn at natural pixel size (scale = 1.0).
-        // OCR Tesseract always runs on the exact same blob embedded here,
-        // so ocrResult.imageWidth === imageWidth and ocrResult.imageHeight === imageHeight.
-        const scale = 1.0;
-        const renderedWidth = imageWidth * scale;
-        const renderedHeight = imageHeight * scale;
+        const renderedWidth = imageWidth;
+        const renderedHeight = imageHeight;
         const imgLeft = margin;
         const imgBottom = margin;
 
@@ -104,8 +118,8 @@ export class PdfLibPDFService implements PDFService {
           height: renderedHeight,
         });
 
-        // 4. Validate OCR Freshness:
-        // Only use the OCR text layer when status is COMPLETED and processedImageId matches the effective image.
+        // 4. Validate OCR freshness. Only overlay a text layer when the OCR was
+        // run against the exact image we just embedded.
         const ocrResult = await this.ocrRepo.findByCaptureId(page.id);
         const isOcrFreshAndCompleted =
           ocrResult !== null &&
@@ -116,43 +130,24 @@ export class PdfLibPDFService implements PDFService {
             (!ocrResult.processedImageId && effectiveImageId === (page.imageId ?? effectiveImageId))
           );
 
-        // Handle valid zero-word completed OCR without errors (e.g. blank custom pages or scribble-only pages)
-        if (isOcrFreshAndCompleted && Array.isArray(ocrResult.words) && ocrResult.words.length > 0) {
-          // 5. Use the OCR imageHeight as the Y-flip anchor.
-          // This is the natural pixel height of the image Tesseract processed.
-          const ocrImageHeight = (ocrResult.imageHeight > 0) ? ocrResult.imageHeight : imageHeight;
-
-          for (const word of ocrResult.words) {
-            const box = word.boundingBox;
-            if (!box || typeof box.x !== 'number' || typeof box.y !== 'number') continue;
-            const bw = typeof box.width === 'number' ? box.width : 0;
-            const bh = typeof box.height === 'number' ? box.height : 0;
-            if (bw <= 0 || bh <= 0) continue;
-
-            const text = typeof word.text === 'string' ? word.text.trim() : String(word.text || '').trim();
-            if (!text || !canEncodeText(helveticaFont, text)) continue;
-
-            // === Proven main-branch coordinate formula ===
-            //
-            // OCR space: top-left origin, Y increases downward
-            // PDF space: bottom-left origin, Y increases upward
-            //
-            // pdfX   = imgLeft + x * scale
-            // pdfY   = imgBottom + (ocrImageHeight - y - h) * scale  ← flip Y
-            // size   = h * scale                                       ← font size = word height
-            const pdfX = imgLeft + box.x * scale;
-            const pdfY = imgBottom + (ocrImageHeight - box.y - bh) * scale;
-            const fontSize = Math.max(1, bh * scale);
-
-            pdfPage.drawText(text, {
-              x: pdfX,
-              y: pdfY,
-              size: fontSize,
-              font: helveticaFont,
-              color: rgb(0, 0, 0),
-              opacity: 0,
-            });
-          }
+        if (
+          isOcrFreshAndCompleted &&
+          Array.isArray(ocrResult.words) &&
+          ocrResult.words.length > 0
+        ) {
+          this.drawOcrTextLayer(
+            pdfPage,
+            helveticaFont,
+            ocrResult.words,
+            {
+              srcWidth: ocrResult.imageWidth > 0 ? ocrResult.imageWidth : imageWidth,
+              srcHeight: ocrResult.imageHeight > 0 ? ocrResult.imageHeight : imageHeight,
+              targetWidth: renderedWidth,
+              targetHeight: renderedHeight,
+              targetLeft: imgLeft,
+              targetBottom: imgBottom,
+            },
+          );
         }
       }
 
@@ -160,6 +155,92 @@ export class PdfLibPDFService implements PDFService {
       return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
     } catch (err: any) {
       throw new PDFGenerationError(err.message || String(err), err);
+    }
+  }
+
+  /**
+   * Emits an invisible, selectable OCR text layer over the embedded screenshot.
+   *
+   * OCR word boxes are in source-image pixel space (top-left origin). The PDF
+   * page uses points with a bottom-left origin. Words are clustered into lines
+   * (shared geometry with the preview overlay); each line is drawn with a single
+   * font size and each word is horizontally scaled (`Tz`) so its glyph run
+   * occupies exactly the width of the OCR box. Text render mode 3 keeps the
+   * layer invisible but selectable/searchable.
+   */
+  private drawOcrTextLayer(
+    pdfPage: PDFPage,
+    font: PDFFont,
+    words: ReadonlyArray<{ text: string; boundingBox: { x: number; y: number; width: number; height: number } }>,
+    rect: {
+      srcWidth: number;
+      srcHeight: number;
+      targetWidth: number;
+      targetHeight: number;
+      targetLeft: number;
+      targetBottom: number;
+    },
+  ): void {
+    const lines = clusterOcrLines(words);
+    if (lines.length === 0) return;
+
+    const scaleX = rect.targetWidth / Math.max(1, rect.srcWidth);
+    const scaleY = rect.targetHeight / Math.max(1, rect.srcHeight);
+
+    // Register the font in the page's resource dictionary and grab its key.
+    const fontKey = pdfPage.node.newFontDictionary(font.name, font.ref);
+
+    for (const line of lines) {
+      // Recover an approximate CSS font size from the tight OCR box height.
+      const fontSize = Math.max(1, (line.fontHeight / OCR_BOX_TO_FONT_SIZE_RATIO) * scaleY);
+
+      // Flip Y: source top-left -> PDF bottom-left. `baselineFromTop` is measured
+      // from the top of the source image.
+      const baselineY =
+        rect.targetBottom + (rect.srcHeight - line.baselineFromTop) * scaleY;
+
+      const ops: PDFOperator[] = [
+        pushGraphicsState(),
+        beginText(),
+        // 3 = invisible text render mode (selectable + searchable, not painted)
+        PDFOperator.of(PDFOperatorNames.SetTextRenderingMode, [PDFNumber.of(3)]),
+        PDFOperator.of(PDFOperatorNames.SetFontAndSize, [fontKey, PDFNumber.of(fontSize)]),
+      ];
+
+      let emitted = false;
+      for (const word of line.words) {
+        if (!canEncodeText(font, word.text)) continue;
+        const targetWordWidth = Math.max(0, word.width * scaleX);
+        if (targetWordWidth <= 0) continue;
+
+        let naturalWidth = 0;
+        try {
+          naturalWidth = font.widthOfTextAtSize(word.text, fontSize);
+        } catch {
+          /* unencodable glyphs already filtered; treat as no-scale */
+        }
+        const tz = horizontalScalePercent(targetWordWidth, naturalWidth, 10, 1000);
+        const xPt = rect.targetLeft + word.x * scaleX;
+
+        ops.push(
+          PDFOperator.of(PDFOperatorNames.SetTextHorizontalScaling, [PDFNumber.of(tz)]),
+          PDFOperator.of(PDFOperatorNames.SetTextMatrix, [
+            PDFNumber.of(1),
+            PDFNumber.of(0),
+            PDFNumber.of(0),
+            PDFNumber.of(1),
+            PDFNumber.of(xPt),
+            PDFNumber.of(baselineY),
+          ]),
+          PDFOperator.of(PDFOperatorNames.ShowText, [font.encodeText(word.text)]),
+        );
+        emitted = true;
+      }
+
+      if (emitted) {
+        ops.push(endText(), popGraphicsState());
+        pdfPage.pushOperators(...ops);
+      }
     }
   }
 }
